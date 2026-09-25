@@ -4,7 +4,9 @@ package.name = picokeymanager
 package.domain = org.picokey
 
 source.dir = .
-source.include_exts = py,png,jpg,kv,atlas,txt,md,xml
+# ttf is required: the bundled CJK font (assets/fonts/) has to end up
+# inside the APK or every Chinese label renders as a tofu box.
+source.include_exts = py,png,jpg,kv,atlas,txt,md,xml,ttf
 source.exclude_dirs = tests,docs,.github,tools,build,bin,.buildozer,__pycache__
 
 version = 0.1.0

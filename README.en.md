@@ -66,6 +66,7 @@ listed automatically on scan.
 - **WINK** — blink the LED, the fastest "is it alive?" check (FIDO channel)
 - **Reboot / reboot to BOOTSEL** — enter UF2 mode to load firmware
 - **Built-in protocol self-test** — runs the protocol stack against a fake USB pipe, no hardware required
+- **Bilingual UI** — 简体中文 / English switchable from the top-right spinner; the choice is remembered
 
 ## Usage
 
@@ -89,6 +90,8 @@ the power supply, or the OTG adapter.
 ```
 main.py                     Kivy UI (scan / device / log screens); USB work runs in threads
 picokeyapp/
+  i18n.py                   string tables and the t() lookup
+  fonts.py                  CJK font registration (replaces Kivy's default Roboto)
   usbhost.py                Android USB Host API: enumeration, permission, claim, bulk IN/OUT
   ccid.py                   CCID transport (feeds upstream's ICCD framing)
   ctap.py                   CTAPHID transport (INIT / WINK / CBOR)
@@ -96,6 +99,7 @@ picokeyapp/
   detect.py                 scans devices, identifies ccid / rescue / fido channels
   selftest.py               protocol self-test that needs no hardware
   pk/                       pure-Python layers ported from upstream (pyscard/pyusb removed)
+assets/fonts/               bundled CJK font (Noto Sans SC subset, OFL)
 src/android/                AndroidManifest snippet injected at build time
 buildozer.spec              Buildozer packaging configuration
 .github/workflows/          GitHub Actions APK build
@@ -119,6 +123,22 @@ Verified in development, **without hardware**:
 - USB permission dialog behaviour, OTG power delivery, vendor-specific HID handling.
 - Responses of a real PicoKey (the tests use simulated devices).
 - The actual effect of a PHY write. **Read before you write** the first time.
+
+## UI language and the CJK font
+
+The UI speaks **简体中文** and **English**; pick one from the spinner at the
+top of the scan screen and the choice is stored in `ui_settings.json`.
+Switching rebuilds the widget tree and does not drop an active connection.
+
+Chinese used to render as tofu boxes (▯) on Android: Kivy's default font,
+Roboto, has no CJK glyphs, and Kivy does not fall back to the system CJK font.
+The fix is to ship a font with the APK and register it before any widget is
+drawn (`picokeyapp/fonts.py`). The font is **Noto Sans SC** (SIL Open Font
+License 1.1, which permits embedding), subsetted to ASCII + GB2312 so it costs
+about 2 MB instead of the full 10 MB.
+
+`source.include_exts` in `buildozer.spec` must contain `ttf`, otherwise the
+font never reaches the APK and Chinese turns back into boxes.
 
 ## Known limitations
 
@@ -153,3 +173,8 @@ Verified in development, **without hardware**:
 Upstream `pypicokey` is AGPL-3.0-or-later; the files under `picokeyapp/pk/`
 keep that license (see `LICENSE`). The Android port and UI are released under
 the same terms.
+
+The bundled font `assets/fonts/NotoSansSC-Regular-subset.ttf` comes from
+[Noto Sans SC](https://fonts.google.com/noto/specs/NotoSansSC) and is licensed
+under the SIL Open Font License 1.1 (embedding and redistribution allowed);
+it is not covered by this project's AGPL licence.

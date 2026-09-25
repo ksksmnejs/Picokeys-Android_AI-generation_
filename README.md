@@ -54,6 +54,7 @@
 - **WINK** — 让 LED 闪一下，最快的"还活着吗"检测（仅 FIDO 通道）
 - **重启 / 重启到 BOOTSEL** — 进入 UF2 模式以便烧录固件
 - **内置协议自检** — 用假 USB 管道把协议栈跑一遍，无需硬件
+- **中英双语界面** — 右上角可切换简体中文 / English，选择会被记住
 
 ## 使用方法
 
@@ -76,6 +77,8 @@
 ```
 main.py                     Kivy 界面（扫描页 / 设备页 / 日志页），USB 操作都在子线程
 picokeyapp/
+  i18n.py                   中英文文案表与 t() 取值函数
+  fonts.py                  中文字体注册（替换 Kivy 默认的 Roboto）
   usbhost.py                安卓 USB 主机接口封装：枚举、权限、claim、bulk IN/OUT
   ccid.py                   CCID 传输层（接上游的 ICCD 组帧）
   ctap.py                   CTAPHID 传输层（INIT / WINK / CBOR）
@@ -83,6 +86,7 @@ picokeyapp/
   detect.py                 扫描设备，识别 ccid / rescue / fido 通道
   selftest.py               不需要硬件的协议自检
   pk/                       移植自上游的纯 Python 层（已去掉 pyscard / pyusb）
+assets/fonts/               随包的中文字体（Noto Sans SC 子集，OFL 许可）
 src/android/                构建时注入的 AndroidManifest 片段
 buildozer.spec              Buildozer 打包配置
 .github/workflows/          GitHub Actions 编译 APK
@@ -104,6 +108,19 @@ tools/fake_android_check.py 用假 jnius 驱动的集成检查
 - USB 权限弹窗的实际行为、OTG 供电、不同厂商对 HID 接口的占用情况。
 - 真实 PicoKey 的响应（上述测试用的是模拟设备）。
 - 写入 PHY 后的实际效果。**第一次请只读取、不要写入**。
+
+## 界面语言与中文字体
+
+界面支持**简体中文**与 **English**，App 右上角的下拉框可切换，选择会写入
+`ui_settings.json` 并记住。切换语言是重建一次界面，不会断开已连接的设备。
+
+安卓上中文曾全部显示为方块（▯）：Kivy 默认字体 Roboto 不含中文字形，而 Kivy
+也不会去用系统的中文字体。解决办法是随包带一份字体并在画任何控件之前注册
+（`picokeyapp/fonts.py`）。用的是 **Noto Sans SC**（SIL OFL 1.1，允许嵌入），
+并裁剪到 ASCII + GB2312 字符集，约 2 MB，而不是完整的 10 MB。
+
+`buildozer.spec` 的 `source.include_exts` 必须包含 `ttf`，否则字体不会打进 APK，
+中文又会变回方块。
 
 ## 已知限制
 
@@ -129,3 +146,7 @@ tools/fake_android_check.py 用假 jnius 驱动的集成检查
 
 上游 `pypicokey` 为 AGPL-3.0-or-later，`picokeyapp/pk/` 下的文件沿用该许可
 （见 `LICENSE`）；安卓移植与界面部分同样以 AGPL-3.0-or-later 发布。
+
+随包的字体 `assets/fonts/NotoSansSC-Regular-subset.ttf` 来自
+[Noto Sans SC](https://fonts.google.com/noto/specs/NotoSansSC)，
+以 SIL Open Font License 1.1 授权（允许嵌入与再分发），不受本项目 AGPL 约束。
