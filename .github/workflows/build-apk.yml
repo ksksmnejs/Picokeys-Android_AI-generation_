@@ -205,15 +205,59 @@ jobs:
           VER: ${{ steps.assets.outputs.version }}
         run: |
           cd "${{ steps.locate.outputs.dir }}"
-          cat > release/notes.md <<EOF
-          ## PicoKey Manager ${TAG}
+          # Bilingual on purpose: the app itself ships a zh/en switch and both
+          # READMEs exist, so the release page should not be English-only.
+          #
+          # The heredoc is quoted ('EOF') so ${TAG} and friends stay literal for
+          # the shell. Substitution is then done by Python's string.Template,
+          # which only touches the three placeholders we hand it - so a stray
+          # $ or ` in the prose cannot be expanded by accident. (envsubst would
+          # be the obvious tool but it lives in gettext-base, which is not
+          # guaranteed on every runner image.)
+          cat > release/notes.tmpl <<'EOF'
+          # PicoKey Manager ${TAG}
+
+          <div align="right">
+
+          [English](#english) | [简体中文](#简体中文)
+
+          </div>
+
+          ---
+
+          ## 简体中文
+
+          PicoKey Manager 的安卓构建版本（[pypicokey](https://github.com/IsayIsee/pypicokey) 的移植版）。
+
+          - Commit：`${GITHUB_SHA}`
+          - 版本：`${VER}`（来自 `buildozer.spec`）
+          - 架构：`arm64-v8a`（debug 构建）
+          - 要求：Android 8.0 以上、支持 USB host、一根 OTG 转接线
+
+          ### 安装
+
+          1. 下载下面的 APK。
+          2. 允许浏览器 / 文件管理器"安装未知应用"的权限。
+          3. 打开 App，点 **扫描 USB 设备**，并在弹窗里点 **允许**。
+
+          ### 注意事项
+
+          - **debug 构建**，使用 debug 签名，安装时手机可能会提示风险。
+          - 由 AI 编写，且**从未在真实 PicoKey 上验证过**；出问题先怀疑这个 App。
+          - `WINK` 需要 FIDO HID 通道；写入 PHY 会让设备重启。
+          - **写 PHY 前先读一次**，确认数值无误再写。
+          - 界面支持简体中文 / English，App 右上角可切换。
+
+          ---
+
+          ## English
 
           Android build of the PicoKey Manager (a port of [pypicokey](https://github.com/IsayIsee/pypicokey)).
 
-          - Commit: \`${GITHUB_SHA}\`
-          - Version: \`${VER}\` (from \`buildozer.spec\`)
-          - Architecture: \`arm64-v8a\` (debug build)
-          - Requires: Android 8.0+ with USB host, plus an OTG adapter
+          - Commit: `${GITHUB_SHA}`
+          - Version: `${VER}` (from `buildozer.spec`)
+          - Architecture: `arm64-v8a` (debug build)
+          - Requires: Android 8.0+ with USB host support, plus an OTG adapter
 
           ### Install
 
@@ -226,11 +270,28 @@ jobs:
           - **Debug build**, signed with the debug key - Android may warn on install.
           - Written by AI and **never run against a real PicoKey**; treat the app
             as the suspect first if something misbehaves.
-          - \`WINK\` needs the FIDO HID channel; PHY writes reboot the device.
-          - Read the PHY config before writing it.
+          - `WINK` needs the FIDO HID channel; writing PHY config reboots the device.
+          - **Read the PHY config before writing it.**
+          - The UI speaks 简体中文 and English; switch from the spinner at the top.
           EOF
-          sed -i 's/^          //' release/notes.md
+          python3 - <<'PYEOF'
+          import os
+          from string import Template
+          raw = open('release/notes.tmpl', encoding='utf-8').read()
+          out = Template(raw).safe_substitute(
+              TAG=os.environ['TAG'],
+              VER=os.environ['VER'],
+              GITHUB_SHA=os.environ.get('GITHUB_SHA', 'unknown'),
+          )
+          open('release/notes.md', 'w', encoding='utf-8').write(out)
+          PYEOF
+          rm -f release/notes.tmpl
           cat release/notes.md
+          # Guard: a literal ${...} left in the file means substitution missed.
+          if grep -n '\${' release/notes.md; then
+            echo "::error::unsubstituted placeholder left in release notes"
+            exit 1
+          fi
 
       - name: Create or update GitHub Release
         if: ${{ inputs.publish }}
