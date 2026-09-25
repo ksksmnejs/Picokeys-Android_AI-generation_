@@ -22,6 +22,11 @@ firmware.
 [Releases](../../releases) page of this repository — grab the latest one and
 install it.
 
+Every run of the **Build Android APK** workflow publishes the freshly built APK
+to Releases automatically, with a notes file carrying the version, the commit
+and the install steps. If a release for that tag already exists, the workflow
+replaces its APK and refreshes the notes instead of creating a duplicate.
+
 ---
 
 ## AI-generated code
@@ -151,6 +156,21 @@ font never reaches the APK and Chinese turns back into boxes.
 - Android 8.0+ (API 26) with USB host support is required, plus an OTG adapter.
 
 ## Troubleshooting
+
+- **`Didn't find class "org.jnius.NativeInvocationHandler"`** — a known pyjnius
+  trap. It can only resolve Java classes from a thread that carries the Android
+  class loader; a plain `threading.Thread` has none, so the JVM reports an empty
+  classpath (`DexPathList[[directory "."]]`). That class is the proxy pyjnius
+  generates whenever a Python object stands in for a Java interface - which is
+  what registering a BroadcastReceiver needs. This project avoids it two ways:
+  USB permission is granted by polling `UsbManager.hasPermission()` (no proxy at
+  all), and every Java class it will ever touch is preloaded in `App.build()` on
+  the UI thread, which puts them in pyjnius' cache.
+- **Device is listed but connecting fails** — usually the USB authorization
+  dialog was denied. Android asks only once; re-enable it in system settings or
+  reinstall the app.
+
+## Troubleshooting (build)
 
 - **Build fails with `unrecognized arguments: --feature ...`** — an old
   `buildozer.spec` that still sets `android.features`. Current

@@ -17,6 +17,10 @@
 
 **下载**：已编译好的 APK 在本仓库的 [Releases](../../releases) 页面，直接取最新版本安装即可。
 
+每次跑 **Build Android APK** 工作流，编译好的 APK 会**自动发布到 Releases**
+（带版本号、commit 号、安装说明的 release notes）。如果同一个 tag 的 release
+已存在，工作流会替换里面的 APK 并更新说明，不会重复创建。
+
 ---
 
 ## AI 生成声明
@@ -45,16 +49,31 @@
 
 ## 功能
 
+桌面版 PicoKey App 存在的原因，是固件虽然跨平台，但 LED 接法、GPIO 映射、板卡身份这些
+在编译时无从得知，必须到目标板上"开光"一次。这些几乎全部落在 PHY 配置块上，本项目已完整覆盖：
+
+| 官方功能 | 对应实现 | 状态 |
+| --- | --- | --- |
+| 板卡身份识别 | USB VID/PID、USB 产品名 | ✅ |
+| LED 行为 | LED GPIO、亮度、驱动（PICO / WS2812 / …）、常亮开关 | ✅ |
+| GPIO 映射 | LED GPIO、确认按键（UP）GPIO | ✅ |
+| USB 行为 | CCID / WCID / HID / KB 接口开关，WCID、DIMM、禁电源复位 | ✅ |
+| 密码学能力 | 启用曲线位图（P-256/P-384/…/Ed25519/X25519，共 11 种） | ✅ |
+| 安全启动 | 启动密钥槽（0-15）、永久锁定 | ✅ |
+| 设备信息 | 平台、产品、固件版本、Flash 用量 | ✅ |
+| 维护 | 重启、重启到 BOOTSEL、WINK 闪灯、FIDO getInfo | ✅ |
+| 一键切换固件 | —— | ❌ 见下 |
+
 - **设备扫描** — 枚举 USB 设备，列出所有可用通道：
   - `CCID` — 功能最全：设备信息、PHY、安全启动、重启
   - `rescue`（vendor `0xFF`）— 固件未启动或 PC/SC 不可用时的备用通道
   - `FIDO HID` — WINK、`authenticatorGetInfo`
-- **设备信息** — 平台（RP2040/RP2350/ESP32）、产品、固件版本、Flash 用量
-- **PHY 配置** — 读写 USB VID/PID、LED GPIO、LED 亮度、启用的 USB 接口
-- **WINK** — 让 LED 闪一下，最快的"还活着吗"检测（仅 FIDO 通道）
-- **重启 / 重启到 BOOTSEL** — 进入 UF2 模式以便烧录固件
-- **内置协议自检** — 用假 USB 管道把协议栈跑一遍，无需硬件
 - **中英双语界面** — 右上角可切换简体中文 / English，选择会被记住
+- **内置协议自检** — 用假 USB 管道把协议栈跑一遍，无需硬件
+
+**一键切换固件没有实现**，这一点说清楚：官方桌面版把各固件镜像打包在应用里，
+本项目既没有这些镜像文件，也没有再分发的权利。要换固件，请用
+**重启到 BOOTSEL** 进入 UF2 模式后在电脑上拖入。
 
 ## 使用方法
 
@@ -128,6 +147,17 @@ tools/fake_android_check.py 用假 jnius 驱动的集成检查
   在 p4a 里容易失败。因此"安全通道 / DKEK"相关功能不可用，其余功能正常。
 - 没有热插拔监听，拔线后回到扫描页重新连接即可。
 - 需要 Android 8.0（API 26）以上、支持 USB host 的设备和一根 OTG 转接线。
+
+## 故障排查
+
+- **报 `Didn't find class "org.jnius.NativeInvocationHandler"`** — pyjnius 的已知坑。
+  它只在**带有 Android 类加载器的线程**里才能解析 Java 类；Python 起的工作线程没有，
+  JVM 于是报空 classpath（`DexPathList[[directory "."]]`）。该类是 pyjnius 为
+  "Python 对象冒充 Java 接口"生成的代理，注册 BroadcastReceiver 时必须用到。
+  本项目从两方面规避：USB 权限改用轮询 `UsbManager.hasPermission()`，完全不需要代理；
+  同时在 `App.build()`（UI 线程）里预加载所有会用到的 Java 类，写进 pyjnius 缓存。
+- **设备扫得到、一连就失败** — 多半是 USB 权限弹窗被拒。Android 只弹一次，
+  拒了要去系统设置里重新允许，或卸载重装 App。
 
 ## 编译排错
 
