@@ -15,6 +15,8 @@
 用 OTG 转接线把设备插到手机上，就能读取设备信息、修改 PHY 配置（USB VID/PID、LED 引脚与亮度、
 启用的 USB 接口）、让 LED 闪一下、重启设备，或重启进入 BOOTSEL 模式拖入新固件。
 
+**下载**：已编译好的 APK 在本仓库的 [Releases](../../releases) 页面，直接取最新版本安装即可。
+
 ---
 
 ## AI 生成声明
@@ -52,23 +54,6 @@
 - **WINK** — 让 LED 闪一下，最快的"还活着吗"检测（仅 FIDO 通道）
 - **重启 / 重启到 BOOTSEL** — 进入 UF2 模式以便烧录固件
 - **内置协议自检** — 用假 USB 管道把协议栈跑一遍，无需硬件
-
-## 获取 APK
-
-APK 由 GitHub Actions 工作流编译。如果没有 Linux 电脑（手机和 Termux 都装不完整 SDK/NDK），
-这是唯一可行的途径：
-
-1. 把本仓库上传到 GitHub，注意保留 `.github/` 目录。
-2. 打开 **Actions** 页，选择 **Build Android APK**，点 **Run workflow**。
-3. 首次大约 20–40 分钟完成，之后在 **Artifacts** 里下载 `picokey-manager-debug` 并解压。
-4. 在手机上安装 APK。
-
-有 Linux 环境时，等价命令是：
-
-```bash
-pip install "Cython==0.29.37" "buildozer==1.6.0"
-buildozer -v android debug     # 产物在 bin/
-```
 
 ## 使用方法
 

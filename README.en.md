@@ -18,6 +18,10 @@ configuration (USB VID/PID, LED pin and brightness, enabled USB interfaces),
 blink the LED, reboot the device, or reboot it into BOOTSEL mode to drag in new
 firmware.
 
+**Download**: a prebuilt APK is published on the
+[Releases](../../releases) page of this repository — grab the latest one and
+install it.
+
 ---
 
 ## AI-generated code
@@ -62,25 +66,6 @@ listed automatically on scan.
 - **WINK** — blink the LED, the fastest "is it alive?" check (FIDO channel)
 - **Reboot / reboot to BOOTSEL** — enter UF2 mode to load firmware
 - **Built-in protocol self-test** — runs the protocol stack against a fake USB pipe, no hardware required
-
-## Getting the APK
-
-The APK is built by a GitHub Actions workflow, which is the practical option if
-you have no Linux machine (the SDK/NDK toolchain cannot be installed on a phone
-or in Termux).
-
-1. Upload this repository to GitHub, keeping the `.github/` directory.
-2. Open the **Actions** tab, pick **Build Android APK**, press **Run workflow**.
-3. When it finishes (20–40 minutes for a first run), download
-   `picokey-manager-debug` from **Artifacts** and unzip it.
-4. Install the APK on your phone.
-
-With a Linux machine, the equivalent is:
-
-```bash
-pip install "Cython==0.29.37" "buildozer==1.6.0"
-buildozer -v android debug     # output lands in bin/
-```
 
 ## Usage
 
