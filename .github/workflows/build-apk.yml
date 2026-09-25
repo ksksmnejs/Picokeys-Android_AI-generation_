@@ -1,0 +1,131 @@
+name: Build Android APK
+
+# Manual only, on purpose. With `on: push` enabled, every commit of this very
+# file fires another run - that is how the queue ended up with a dozen
+# half-finished runs that can no longer be cancelled from the UI.
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    # ubuntu-22.04 entered deprecation on 2026-09-17: jobs on that label wait
+    # in the queue much longer at peak hours (documented by GitHub as queue
+    # delays, not failures). ubuntu-24.04 is the recommended replacement.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+
+    # You have triggered this workflow many times; older runs can sit in the
+    # queue in front of the new one and make it look "stuck". This keeps only
+    # the newest run per branch and cancels whatever is still queued/running.
+    concurrency:
+      group: build-apk-${{ github.ref }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            git zip unzip python3-pip python3-setuptools \
+            autoconf automake libtool pkg-config zlib1g-dev \
+            libncurses-dev libssl-dev libffi-dev cmake libltdl-dev
+
+      # p4a's bootstrap ships Gradle 8.14.3, which requires JDK 17. The
+      # runner's default javac is 11, which buildozer would pick up and then
+      # fail on during the Gradle stage.
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Confirm toolchain
+        run: |
+          java -version
+          javac -version
+          echo "JAVA_HOME=$JAVA_HOME"
+
+      # Show exactly how the repo was uploaded, then locate buildozer.spec
+      # wherever it ended up (root, or inside a wrapper folder).
+      - name: Locate project directory
+        id: locate
+        run: |
+          echo "=== repo root ==="
+          ls -la
+          SPEC=$(find . -name buildozer.spec -not -path "./.git/*" | head -n 1)
+          if [ -z "$SPEC" ]; then
+            echo "::error::buildozer.spec not found anywhere in the repo"
+            find . -not -path "./.git/*" | head -n 60
+            exit 1
+          fi
+          DIR=$(dirname "$SPEC")
+          echo "project dir = $DIR"
+          echo "dir=$DIR" >> "$GITHUB_OUTPUT"
+          ls -la "$DIR"
+
+      - name: Cache buildozer downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.buildozer
+          key: buildozer-${{ runner.os }}-v2
+
+      - name: Install buildozer / Cython
+        run: |
+          python3 -m pip install --user --upgrade pip
+          # p4a allows cython <= 3.0.12; newer 3.1.x breaks the kivy recipe
+          python3 -m pip install --user "Cython==3.0.12" buildozer
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      # Diagnostic only. IMPORTANT: never create ~/.buildozer/android/platform/
+      # android-sdk (or anything inside it) here - buildozer decides whether to
+      # download the SDK by checking if that directory exists, so pre-creating
+      # it makes buildozer skip the download and then die with
+      # "sdkmanager path does not exist, sdkmanager is not installed".
+      - name: Report SDK state before build
+        run: |
+          P="$HOME/.buildozer/android/platform"
+          echo "=== $P ==="
+          ls -la "$P" 2>/dev/null || echo "(no platform dir yet - SDK will be downloaded)"
+          echo "=== sdkmanager ==="
+          ls -la "$P/android-sdk/tools/bin/" 2>/dev/null || echo "(sdkmanager not installed yet)"
+
+      # Informational only: the APK does not depend on this passing.
+      - name: Sanity check (protocol self-test, no hardware needed)
+        continue-on-error: true
+        run: |
+          cd "${{ steps.locate.outputs.dir }}"
+          python3 -m picokeyapp.selftest || echo "self-test could not run (non-fatal)"
+
+      # `yes |` is a catch-all for any leftover interactive prompt in the
+      # toolchain (sdkmanager license, etc). buildozer.spec already sets
+      # android.accept_sdk_license = True, which handles the pexpect path;
+      # this covers the rest. The pipeline's exit code is buildozer's.
+      - name: Build debug APK
+        run: |
+          cd "${{ steps.locate.outputs.dir }}"
+          yes | buildozer -v android debug
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          cd "${{ steps.locate.outputs.dir }}"
+          echo "=== buildozer logs ==="
+          find .buildozer "$HOME/.buildozer" -name "*.log" 2>/dev/null | head -20
+          for f in $(find .buildozer -name "*.log" 2>/dev/null | tail -3); do
+            echo "===== $f ====="; tail -n 150 "$f"
+          done
+          echo "=== SDK tree ==="
+          ls -la "$HOME/.buildozer/android/platform/" 2>/dev/null
+          ls -la "$HOME/.buildozer/android/platform/android-sdk/" 2>/dev/null
+          ls -la "$HOME/.buildozer/android/platform/android-sdk/tools/bin/" 2>/dev/null
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: picokey-manager-debug
+          path: ${{ steps.locate.outputs.dir }}/bin/*.apk
+          if-no-files-found: error
