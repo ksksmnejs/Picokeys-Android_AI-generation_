@@ -31,6 +31,7 @@ Notes learned the hard way
 from __future__ import annotations
 
 import threading
+import time
 
 from .i18n import t
 from .pk.core.log import get_logger
@@ -95,6 +96,60 @@ def usb_manager():
     ctx = _autoclass("android.content.Context")
     manager = act.getSystemService(ctx.USB_SERVICE)
     return manager
+
+
+# Every Java class this module can possibly touch. Resolving them once, on the
+# Android UI thread, is what makes the rest of the module usable from Python
+# worker threads - see preload_java_classes().
+_PRELOAD_CLASSES = (
+    "org.kivy.android.PythonActivity",
+    "android.content.Context",
+    "android.hardware.usb.UsbManager",
+    "android.os.Build",
+    "android.content.Intent",
+    "android.content.IntentFilter",
+    "android.app.PendingIntent",
+    # The two classes that matter most for the proxy machinery:
+    #   org.jnius.NativeInvocationHandler  - used by PythonJavaClass
+    #   org.kivy.android.GenericBroadcastReceiver - used by android.broadcast
+    "org.jnius.NativeInvocationHandler",
+    "org.kivy.android.GenericBroadcastReceiver",
+)
+
+
+def preload_java_classes(verbose: bool = False) -> list:
+    """Resolve every Java class we might use, on the thread that can find them.
+
+    THIS MUST BE CALLED FROM THE ANDROID UI THREAD (i.e. from App.build()).
+
+    Why it exists
+    -------------
+    pyjnius looks Java classes up through the calling thread's class loader. A
+    Python thread started with threading.Thread() has no Android class loader
+    attached, so the JVM reports an empty classpath - the error text is
+    characteristic:
+
+        java.lang.ClassNotFoundException: Didn't find class
+        "org.jnius.NativeInvocationHandler" on path:
+        DexPathList[[directory "."], nativeLibraryDirectories=[...]]
+
+    That class is the proxy pyjnius creates whenever a Python object stands in
+    for a Java interface (PythonJavaClass), which is exactly what registering a
+    BroadcastReceiver needs. Touching the class once on the UI thread puts it
+    in pyjnius' cache, and later lookups from worker threads then succeed.
+
+    Returns the list of class names that could not be resolved (non-fatal).
+    """
+    missing = []
+    for name in _PRELOAD_CLASSES:
+        try:
+            _autoclass(name)
+            if verbose:
+                logger.debug("preloaded " + name)
+        except Exception as e:
+            missing.append(name)
+            logger.debug("could not preload %s: %s", name, e)
+    return missing
 
 
 # --------------------------------------------------------------- descriptors
@@ -256,92 +311,69 @@ def has_permission(device: Device) -> bool:
         return False
 
 
-def request_permission(device: Device, timeout: float = 15.0) -> bool:
+def request_permission(device: Device, timeout: float = 25.0,
+                       poll_interval: float = 0.25) -> bool:
     """Ask Android for access to `device` and wait for the user's answer.
 
     Must be called from a background thread (it blocks up to `timeout`
     seconds). Returns True when access was granted.
+
+    Why this polls instead of listening for the broadcast
+    ----------------------------------------------------
+    The obvious implementation registers a BroadcastReceiver, which with
+    pyjnius means subclassing PythonJavaClass - and that needs the Java class
+    `org.jnius.NativeInvocationHandler` to be present in the APK.
+
+    It is not, on current toolchains: p4a builds pyjnius as a
+    PyProjectRecipe, and when a prebuilt Android wheel is available it takes
+    the `install_prebuilt_wheel()` path and skips `build_arch()` entirely -
+    so `postbuild_arch()`, the step that copies `jnius/src/org` into the
+    project's Java sources, never runs. The symptom is exactly what showed up
+    on device:
+
+        java.lang.ClassNotFoundException: Didn't find class
+        "org.jnius.NativeInvocationHandler"
+
+    Polling `UsbManager.hasPermission()` needs no Python->Java interface at
+    all, so it works regardless of whether those Java classes were shipped.
+    The PendingIntent still has to exist because requestPermission() requires
+    one; the broadcast it fires is simply ignored.
     """
     if has_permission(device):
         return True
 
-    from jnius import autoclass, PythonJavaClass, java_method
+    from jnius import autoclass
 
-    UsbManager = autoclass("android.hardware.usb.UsbManager")
     act = activity()
-    granted = threading.Event()
-    result = {}
-
-    class _Receiver(PythonJavaClass):
-        __javainterfaces__ = ["android/content/BroadcastReceiver"]
-        __javacontext__ = "app"
-
-        def __init__(self, action, event, out):
-            super().__init__()
-            self._action = action
-            self._event = event
-            self._out = out
-
-        @java_method("(Landroid/content/Context;Landroid/content/Intent;)V")
-        def onReceive(self, context, intent):
-            if intent is None:
-                return
-            try:
-                if intent.getAction() != self._action:
-                    return
-                self._out["granted"] = bool(
-                    intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, False))
-            except Exception as e:      # pragma: no cover
-                self._out["error"] = str(e)
-            finally:
-                self._event.set()
-
-    receiver = _Receiver(ACTION_USB_PERMISSION, granted, result)
-
     Intent = autoclass("android.content.Intent")
-    IntentFilter = autoclass("android.content.IntentFilter")
     PendingIntent = autoclass("android.app.PendingIntent")
 
-    filt = IntentFilter(ACTION_USB_PERMISSION)
+    intent = Intent(ACTION_USB_PERMISSION)
     try:
-        Build = autoclass("android.os.Build")
-        sdk = int(Build.VERSION.SDK_INT)
-    except Exception:
-        sdk = 0
-    registered = False
-    if sdk >= 33:
-        # Context.RECEIVER_NOT_EXPORTED = 4
-        try:
-            act.registerReceiver(receiver, filt, 4)
-            registered = True
-        except Exception as e:
-            logger.error("registerReceiver(3-arg) failed: " + str(e))
-    if not registered:
-        try:
-            act.registerReceiver(receiver, filt)
-            registered = True
-        except Exception as e:
-            logger.error("registerReceiver failed: " + str(e))
-            return False
+        intent.setPackage(act.getPackageName())
+    except Exception as e:
+        logger.debug("setPackage failed: " + str(e))
+
+    # FLAG_IMMUTABLE (1 << 26) is mandatory on Android 12+;
+    # FLAG_UPDATE_CURRENT (1 << 27) reuses the PendingIntent on a retry.
+    flags = (1 << 26) | (1 << 27)
+    try:
+        pi = PendingIntent.getBroadcast(act, 0, intent, flags)
+    except Exception as e:
+        raise UsbError(f"PendingIntent.getBroadcast failed: {e}")
 
     try:
-        intent = Intent(ACTION_USB_PERMISSION)
-        try:
-            intent.setPackage(act.getPackageName())
-        except Exception:
-            pass
-        # PendingIntent.FLAG_IMMUTABLE = 1 << 26, mandatory on Android 12+
-        flags = 1 << 26
-        pi = PendingIntent.getBroadcast(activity(), 0, intent, flags)
         usb_manager().requestPermission(device.jdevice, pi)
-        granted.wait(timeout)
-    finally:
-        try:
-            act.unregisterReceiver(receiver)
-        except Exception:
-            pass
+    except Exception as e:
+        raise UsbError(f"requestPermission failed: {e}")
 
-    return bool(result.get("granted", False))
+    deadline = time.monotonic() + max(float(timeout), 1.0)
+    while True:
+        if has_permission(device):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(poll_interval)
 
 
 # ---------------------------------------------------------------- connection

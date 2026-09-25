@@ -60,7 +60,11 @@ PHY_TLV = bytes([
     0x00, 0x04, 0xFE, 0xFF, 0xFC, 0xFD,          # VIDPID
     0x04, 0x01, 0x19,                            # LED_GPIO = 25
     0x05, 0x01, 0x40,                            # LED brightness = 64
-    0x06, 0x02, 0x00, 0x01,                      # OPTS
+    0x06, 0x02, 0x00, 0x01,                      # OPTS = WCID
+    0x08, 0x01, 0x0F,                            # UP_BTN (confirm button) = 15
+    0x09, 0x08,                                  # USB product string, NUL terminated
+]) + b"PicoKey\x00" + bytes([
+    0x0A, 0x04, 0x00, 0x00, 0x00, 0x81,          # curves = SECP256R1 | ED25519
     0x0B, 0x01, 0x0F,                            # enabled USB interfaces = all
     0x0C, 0x01, 0x01,                            # LED driver = PICO
 ])
@@ -83,6 +87,7 @@ class FakePicoKey:
         self.phy_written = None
         self.rebooted = None
         self.secure = None
+        self.secure_written = None
 
     # APDU layer -> (data, sw1, sw2)
     def apdu(self, apdu):
@@ -103,6 +108,12 @@ class FakePicoKey:
             return b"", 0x6A, 0x86
         if len(apdu) >= 4 and apdu[1] == 0x1C:
             self.phy_written = apdu
+            if apdu[2] == 0x02:                        # secure boot (p1 = 0x02)
+                # Lc occupies apdu[5:7] here (1 pad byte + 2 length bytes),
+                # so the data field starts at apdu[7].
+                lc_len = (apdu[5] << 8) | apdu[6]
+                body = list(apdu[7:7 + lc_len])
+                self.secure_written = (body[0], body[1]) if len(body) >= 2 else tuple(body)
             return b"", 0x90, 0x00
         if len(apdu) >= 4 and apdu[1] == 0x1F:
             self.rebooted = apdu[2]
@@ -220,7 +231,7 @@ def _check(label, condition, detail=""):
 def run() -> str:
     from . import ccid, ctap
     from .cbor_mini import loads, dumps
-    from .pk import PicoKey, PhyUsbItf, PhyLedDriver
+    from .pk import PicoKey, PhyData, PhyUsbItf, PhyLedDriver, PhyOpt, PhyCurve
 
     lines = [t("selftest_title"), ""]
 
@@ -260,10 +271,48 @@ def run() -> str:
                         phy.enabled_usb_itf == (int(PhyUsbItf.CCID) | int(PhyUsbItf.WCID)
                                                 | int(PhyUsbItf.HID) | int(PhyUsbItf.KB))))
     lines.append(_check("PHY led driver", phy.led_driver == int(PhyLedDriver.PICO)))
+    lines.append(_check("PHY usb product string", phy.usb_product == "PicoKey",
+                        str(phy.usb_product)))
+    lines.append(_check("PHY confirm-button GPIO", phy.up_btn == 15, str(phy.up_btn)))
+    lines.append(_check("PHY opts (WCID)", phy.opts == int(PhyOpt.WCID), hex(phy.opts or 0)))
+    lines.append(_check("PHY enabled curves",
+                        phy.enabled_curves == (int(PhyCurve.SECP256R1) | int(PhyCurve.ED25519)),
+                        hex(phy.enabled_curves or 0)))
 
     data = phy.serialize()
     pk.phy(data)
     lines.append(_check("PHY write reached the device", fake.phy_written is not None))
+
+    # every commissioning field has to survive a write -> serialize round trip
+    full = PhyData()
+    full.vidpid = bytearray([0x2E, 0x8A, 0x10, 0xFE])
+    full.led_gpio = 25
+    full.led_brightness = 96
+    full.led_driver = int(PhyLedDriver.WS2812)
+    full.up_btn = 15
+    full.usb_product = "My Board"
+    full.opts = int(PhyOpt.WCID) | int(PhyOpt.LED_STEADY)
+    full.enabled_curves = 0x00000081
+    full.enabled_usb_itf = int(PhyUsbItf.CCID) | int(PhyUsbItf.HID)
+    round_trip = PhyData.parse(full.serialize())
+    lines.append(_check("PHY write -> parse round trip",
+                        round_trip.vid == 0x2E8A and round_trip.pid == 0x10FE
+                        and round_trip.usb_product == "My Board"
+                        and round_trip.up_btn == 15
+                        and round_trip.opts == full.opts
+                        and round_trip.enabled_curves == full.enabled_curves
+                        and round_trip.led_driver == full.led_driver,
+                        repr(round_trip)))
+
+    # ---------------------------------------------------------- secure boot
+    lines.append("")
+    lines.append(t("sec_security").strip("— ") + ":")
+    sec = pk.secure_info()
+    lines.append(_check("secure_info parsed",
+                        set(sec) == {"enabled", "locked", "boot_key"}, str(sec)))
+    pk.secure_boot(3, True)
+    lines.append(_check("secure_boot reached the device",
+                        fake.secure_written == (3, 1), str(fake.secure_written)))
 
     pk.reboot(True)
     lines.append(_check("reboot(BOOTSEL) reached the device", fake.rebooted == 0x01))

@@ -160,6 +160,76 @@ STRINGS = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Commissioning (the extra PHY options and curves) and secure boot.
+# Kept in a second block so the general UI strings above stay readable.
+# ---------------------------------------------------------------------------
+STRINGS.update({
+    # ------------------------------------------------------------ sections
+    "sec_phy": {"zh": "—— PHY 配置 ——", "en": "—— PHY configuration ——"},
+    "sec_opts": {"zh": "—— 选项 ——", "en": "—— Options ——"},
+    "sec_curves": {"zh": "—— 启用曲线（HSM）——", "en": "—— Enabled curves (HSM) ——"},
+    "sec_security": {"zh": "—— 安全启动 ——", "en": "—— Secure boot ——"},
+    "sec_firmware": {"zh": "—— 固件与重启 ——", "en": "—— Firmware & reboot ——"},
+
+    # ------------------------------------------------------- extra PHY fields
+    "field_usb_product": {"zh": "USB 产品名", "en": "USB product"},
+    "field_up_btn": {"zh": "确认按键 GPIO", "en": "Confirm button GPIO"},
+
+    # ----------------------------------------------------------------- OPTS
+    "opt_wcid": {"zh": "WCID", "en": "WCID"},
+    "opt_dimm": {"zh": "呼吸灯", "en": "DIMM"},
+    "opt_no_reset": {"zh": "禁电源复位", "en": "No power reset"},
+    "opt_led_steady": {"zh": "LED 常亮", "en": "LED steady"},
+
+    # ---------------------------------------------------------------- curves
+    "cv_secp256r1": {"zh": "P-256", "en": "P-256"},
+    "cv_secp384r1": {"zh": "P-384", "en": "P-384"},
+    "cv_secp521r1": {"zh": "P-521", "en": "P-521"},
+    "cv_secp256k1": {"zh": "secp256k1", "en": "secp256k1"},
+    "cv_bp256r1": {"zh": "BP-256", "en": "BP-256"},
+    "cv_bp384r1": {"zh": "BP-384", "en": "BP-384"},
+    "cv_bp512r1": {"zh": "BP-512", "en": "BP-512"},
+    "cv_ed25519": {"zh": "Ed25519", "en": "Ed25519"},
+    "cv_ed448": {"zh": "Ed448", "en": "Ed448"},
+    "cv_curve25519": {"zh": "X25519", "en": "X25519"},
+    "cv_curve448": {"zh": "X448", "en": "X448"},
+    "curves_all": {"zh": "全选", "en": "All"},
+    "curves_none": {"zh": "全不选", "en": "None"},
+    "curves_value": {"zh": "曲线位图：0x{v:08X}", "en": "Curve bitmap: 0x{v:08X}"},
+
+    # ----------------------------------------------------------- secure boot
+    "btn_read_secure": {"zh": "读取安全启动状态", "en": "Read secure boot status"},
+    "btn_secure_boot": {"zh": "设置安全启动密钥", "en": "Set secure boot key"},
+    "field_bootkey": {"zh": "启动密钥槽 (0-15)", "en": "Boot key slot (0-15)"},
+    "chk_lock": {"zh": "永久锁定（不可撤销）", "en": "Lock permanently (irreversible)"},
+    "lbl_secure_enabled": {"zh": "安全启动", "en": "Secure boot"},
+    "lbl_secure_locked": {"zh": "已锁定", "en": "Locked"},
+    "lbl_bootkey": {"zh": "启动密钥槽", "en": "Boot key slot"},
+    "lbl_yes": {"zh": "是", "en": "Yes"},
+    "lbl_no": {"zh": "否", "en": "No"},
+    "hint_bootkey": {
+        "zh": "锁定后该密钥不可再更改，请确认槽位正确。",
+        "en": "Once locked the key cannot be changed. Check the slot first.",
+    },
+
+    "msg_secure_reading": {"zh": "读取安全启动状态…", "en": "Reading secure boot status…"},
+    "msg_secure_writing": {"zh": "写入安全启动配置…", "en": "Writing secure boot config…"},
+    "msg_secure_done": {"zh": "安全启动状态：{state}", "en": "Secure boot status: {state}"},
+    "msg_secure_set": {"zh": "安全启动已设置（槽 {slot}），设备将重启", "en": "Secure boot set (slot {slot}); device will reboot"},
+    "msg_no_data": {"zh": "（无数据）", "en": "(no data)"},
+
+    "err_bootkey_range": {"zh": "启动密钥槽必须在 0-15 之间", "en": "Boot key slot must be between 0 and 15"},
+    "err_secure_unavailable": {"zh": "安全启动不可用（设备未返回数据）", "en": "Secure boot unavailable (device returned no data)"},
+    "err_usb_product_long": {"zh": "USB 产品名过长（最多 31 字符）", "en": "USB product name too long (31 chars max)"},
+
+    # ------------------------------------------------------------ diagnostics
+    "diag_preload_title": {"zh": "Java 类预加载", "en": "Java class preload"},
+    "diag_preload_ok": {"zh": "全部就绪（可在子线程使用 USB）", "en": "All ready (USB usable from worker threads)"},
+    "diag_preload_missing": {"zh": "缺失：{names}", "en": "Missing: {names}"},
+})
+
+
 def get_lang() -> str:
     return _current
 
