@@ -1,0 +1,15 @@
+<!--
+  Injected into <manifest> via buildozer's android.extra_manifest_xml.
+
+  This replaces the old `android.features = android.hardware.usb.host`
+  setting: buildozer turns that key into a p4a command-line switch that
+  current python-for-android no longer accepts, and the build dies with
+  "unrecognized arguments". Both buildozer 1.5.0 and 1.6.0 emit it, so the
+  setting itself has to go; injecting the XML is what p4a supports today.
+
+  required="false" is deliberate - it declares the feature without letting
+  Play or other stores filter out devices whose OTG support is not
+  advertised, so the APK stays installable everywhere and the app still
+  calls the USB host APIs at runtime.
+-->
+<uses-feature android:name="android.hardware.usb.host" android:required="false" />
