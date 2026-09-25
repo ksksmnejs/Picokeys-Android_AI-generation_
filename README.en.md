@@ -134,7 +134,16 @@ Verified in development, **without hardware**:
 
 The UI speaks **简体中文** and **English**; pick one from the spinner at the
 top of the scan screen and the choice is stored in `ui_settings.json`.
-Switching rebuilds the widget tree and does not drop an active connection.
+Switching rebuilds the three screen bodies and does not drop an active
+connection.
+
+> **Implementation note**: each screen body is built as an **anonymous root
+> widget** rather than a `<Screen>:` class rule. Class rules are registered
+> against the class, and re-loading one does not replace it - it *adds*
+> another, so an earlier version piled a whole extra set of widgets onto the
+> screen on every language switch (3 buttons, then 6, then 9...), which showed
+> up as "half Chinese, half English, buttons dead". An anonymous root produces
+> an instance and no class rule, so nothing accumulates.
 
 Chinese used to render as tofu boxes (▯) on Android: Kivy's default font,
 Roboto, has no CJK glyphs, and Kivy does not fall back to the system CJK font.

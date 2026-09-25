@@ -41,8 +41,9 @@ import traceback
 
 from kivy.app import App
 from kivy.clock import Clock
+from kivy.core.window import Window
 from kivy.lang import Builder
-from kivy.properties import ListProperty, StringProperty
+from kivy.properties import BooleanProperty, ListProperty, StringProperty
 from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.screenmanager import Screen, ScreenManager
@@ -76,23 +77,69 @@ for _k, _bit in CURVES:
 # ---------------------------------------------------------------------------
 # Static rules, loaded exactly once. No translatable text lives here.
 # ---------------------------------------------------------------------------
-KV_RULES = """
+# ---------------------------------------------------------------------------
+# Colour palette, applied through the KV rules below. Keeping it in one place
+# means the whole app can be re-themed by editing these six values.
+# ---------------------------------------------------------------------------
+C_BG = (0.071, 0.086, 0.110, 1)        # window background
+C_SURFACE = (0.137, 0.165, 0.204, 1)   # buttons / cards
+C_PRIMARY = (0.180, 0.486, 0.965, 1)   # primary action
+C_DANGER = (0.753, 0.224, 0.169, 1)    # destructive action
+C_TEXT = (0.902, 0.918, 0.941, 1)
+C_MUTED = (0.604, 0.647, 0.694, 1)
+
+
+def _rgba(color) -> str:
+    return ", ".join(f"{v:.3f}" for v in color)
+
+
+# Static rules, loaded exactly once. No translatable text lives here.
+# Every widget defaults to the bundled CJK font; without it Chinese labels
+# render as tofu boxes because Roboto has no CJK glyphs.
+KV_RULES = f"""
 <Label>:
     font_name: 'AppFont'
+    color: {_rgba(C_TEXT)}
 
 <TextInput>:
     font_name: 'AppFont'
     font_size: '15sp'
+    foreground_color: {_rgba(C_TEXT)}
+    background_color: 0.09, 0.11, 0.14, 1
+    padding: dp(10), dp(10)
+    halign: 'left'
 
+# A toggle used for the option / curve / interface switches.
 <Chip@ToggleButton>:
     font_name: 'AppFont'
     font_size: '13sp'
+    background_color: ({_rgba(C_SURFACE)}) if self.state == 'normal' else ({_rgba(C_PRIMARY)})
+    background_normal: ''
+    background_down: ''
+    color: {_rgba(C_TEXT)}
+    bold: (True if self.state == 'down' else False)
 
 <MenuButton@Button>:
     font_name: 'AppFont'
     size_hint_y: None
     height: dp(52)
     font_size: '16sp'
+    background_color: {_rgba(C_SURFACE)}
+    background_normal: ''
+    background_down: ''
+    color: {_rgba(C_TEXT)}
+    # Disabled while a USB operation is running: without this, tapping twice
+    # queues a second transfer on a transport that is already mid-exchange.
+    disabled: app.busy
+    opacity: 0.45 if self.disabled else 1
+
+<PrimaryButton@MenuButton>:
+    background_color: {_rgba(C_PRIMARY)}
+    bold: True
+
+<DangerButton@MenuButton>:
+    background_color: {_rgba(C_DANGER)}
+    bold: True
 
 <SectionLabel@Label>:
     font_name: 'AppFont'
@@ -111,7 +158,7 @@ KV_RULES = """
     valign: 'center'
     text_size: self.size
     font_size: '14sp'
-    color: 0.85, 0.87, 0.9, 1
+    color: {_rgba(C_MUTED)}
 
 <Row@BoxLayout>:
     size_hint_y: None
@@ -123,298 +170,328 @@ KV_RULES = """
 # Screens. @@key@@ placeholders are replaced by _kv() with the current
 # language's string; {{TOKEN}} blocks are generated programmatically.
 # ---------------------------------------------------------------------------
-KV_TEMPLATE = """
+# The screen manager skeleton. Loaded once and never rebuilt - it owns no
+# translatable text, so it does not need to be.
+KV_ROOT = """
 ScreenManager:
+    id: sm
     ScanScreen:
+        name: 'scan'
     DeviceScreen:
+        name: 'device'
     LogScreen:
+        name: 'log'
+"""
 
-<ScanScreen>:
-    name: 'scan'
+# Screen bodies. Each one is an ANONYMOUS root widget, deliberately: a rule
+# like `<ScanScreen>:` is registered against the class, and re-loading it does
+# not replace the old rule - it ADDS another one, so every language switch
+# piled another full set of widgets onto the screen (3 buttons, then 6, then
+# 9...). An anonymous root produces an instance and no class rule, so nothing
+# can accumulate. (Builder.unload_string does not reliably undo class rules.)
+KV_SCAN = """
+BoxLayout:
+    orientation: 'vertical'
+    canvas.before:
+        Color:
+            rgba: 0.071, 0.086, 0.110, 1.000
+        Rectangle:
+            pos: self.pos
+            size: self.size
+    padding: dp(12)
+    spacing: dp(10)
     BoxLayout:
-        orientation: 'vertical'
-        padding: dp(12)
-        spacing: dp(10)
-        BoxLayout:
-            size_hint_y: None
-            height: dp(44)
-            spacing: dp(6)
-            Label:
-                text: '@@language@@'
-                size_hint_x: 0.32
-                halign: 'left'
-                text_size: self.size
-                font_size: '15sp'
-            Spinner:
-                id: lang_spinner
-                values: app.lang_values
-                text: app.lang_current
-                font_name: 'AppFont'
-                font_size: '15sp'
-                on_text: app.on_lang_change(self.text)
-        Label:
-            text: '@@app_title@@'
-            font_size: '22sp'
-            bold: True
-            size_hint_y: None
-            height: dp(40)
-        Label:
-            id: status
-            text: app.status_text
-            size_hint_y: None
-            height: dp(60)
-            text_size: self.width, None
-            shorten: False
-            font_size: '14sp'
-            color: 0.7, 0.75, 0.8, 1
-        MenuButton:
-            text: '@@btn_scan@@'
-            on_release: app.scan()
-        ScrollView:
-            GridLayout:
-                id: list_box
-                cols: 1
-                size_hint_y: None
-                height: self.minimum_height
-                spacing: dp(6)
-        MenuButton:
-            text: '@@btn_selftest@@'
-            on_release: app.selftest()
-        MenuButton:
-            text: '@@btn_logs@@'
-            on_release: app.go('log')
-
-<DeviceScreen>:
-    name: 'device'
-    BoxLayout:
-        orientation: 'vertical'
-        padding: dp(12)
+        size_hint_y: None
+        height: dp(44)
         spacing: dp(6)
         Label:
-            id: info
-            text: app.device_text
-            size_hint_y: None
-            height: dp(150)
-            text_size: self.width, None
+            text: '@@language@@'
+            size_hint_x: 0.32
+            halign: 'left'
+            text_size: self.size
             font_size: '15sp'
+        Spinner:
+            id: lang_spinner
+            values: app.lang_values
+            text: app.lang_current
+            font_name: 'AppFont'
+            font_size: '15sp'
+            on_text: app.on_lang_change(self.text)
+    Label:
+        text: '@@app_title@@'
+        font_size: '22sp'
+        bold: True
+        size_hint_y: None
+        height: dp(40)
+    Label:
+        id: status
+        text: app.status_text
+        size_hint_y: None
+        height: dp(60)
+        text_size: self.width, None
+        shorten: False
+        font_size: '14sp'
+        color: 0.7, 0.75, 0.8, 1
+    PrimaryButton:
+        text: '@@btn_scan@@'
+        on_release: app.scan()
+    ScrollView:
+        GridLayout:
+            id: list_box
+            cols: 1
+            size_hint_y: None
+            height: self.minimum_height
+            spacing: dp(6)
+    MenuButton:
+        text: '@@btn_selftest@@'
+        on_release: app.selftest()
+    MenuButton:
+        text: '@@btn_logs@@'
+        on_release: app.go('log')
+"""
+
+KV_DEVICE = """
+BoxLayout:
+    orientation: 'vertical'
+    canvas.before:
+        Color:
+            rgba: 0.071, 0.086, 0.110, 1.000
+        Rectangle:
+            pos: self.pos
+            size: self.size
+    padding: dp(12)
+    spacing: dp(6)
+    Label:
+        id: info
+        text: app.device_text
+        size_hint_y: None
+        height: dp(150)
+        text_size: self.width, None
+        font_size: '15sp'
+        halign: 'left'
+        valign: 'top'
+    ScrollView:
+        GridLayout:
+            cols: 1
+            size_hint_y: None
+            height: self.minimum_height
+            spacing: dp(6)
+            padding: 0, dp(6)
+
+            MenuButton:
+                text: '@@btn_refresh@@'
+                on_release: app.refresh()
+            PrimaryButton:
+                text: '@@btn_read_phy@@'
+                on_release: app.read_phy()
+
+            SectionLabel:
+                text: '@@sec_phy@@'
+            Row:
+                FieldLabel:
+                    text: '@@field_vid@@'
+                TextInput:
+                    id: vid
+                    multiline: False
+                    input_filter: 'int'
+            Row:
+                FieldLabel:
+                    text: '@@field_pid@@'
+                TextInput:
+                    id: pid
+                    multiline: False
+                    input_filter: 'int'
+            Row:
+                FieldLabel:
+                    text: '@@field_usb_product@@'
+                TextInput:
+                    id: usb_product
+                    multiline: False
+            Row:
+                FieldLabel:
+                    text: '@@field_led_gpio@@'
+                TextInput:
+                    id: led_gpio
+                    multiline: False
+                    input_filter: 'int'
+            Row:
+                FieldLabel:
+                    text: '@@field_led_btness@@'
+                TextInput:
+                    id: led_btness
+                    multiline: False
+                    input_filter: 'int'
+            Row:
+                FieldLabel:
+                    text: '@@field_led_driver@@'
+                Spinner:
+                    id: led_driver
+                    values: ['PICO', 'PIMORONI', 'WS2812', 'CYW43', 'NEOPIXEL', 'NONE']
+                    text: 'PICO'
+                    font_name: 'AppFont'
+                    font_size: '15sp'
+            Row:
+                FieldLabel:
+                    text: '@@field_up_btn@@'
+                TextInput:
+                    id: up_btn
+                    multiline: False
+                    input_filter: 'int'
+
+            SectionLabel:
+                text: '@@sec_opts@@'
+            GridLayout:
+                cols: 2
+                size_hint_y: None
+                height: dp(88)
+                Chip:
+                    id: opt_wcid
+                    text: '@@opt_wcid@@'
+                Chip:
+                    id: opt_dimm
+                    text: '@@opt_dimm@@'
+                Chip:
+                    id: opt_no_reset
+                    text: '@@opt_no_reset@@'
+                Chip:
+                    id: opt_led_steady
+                    text: '@@opt_led_steady@@'
+
+            SectionLabel:
+                text: '@@sec_curves@@'
+            {{CURVE_GRID}}
+            BoxLayout:
+                size_hint_y: None
+                height: dp(40)
+                spacing: dp(6)
+                Button:
+                    font_name: 'AppFont'
+                    text: '@@curves_all@@'
+                    on_release: app.curves_all()
+                Button:
+                    font_name: 'AppFont'
+                    text: '@@curves_none@@'
+                    on_release: app.curves_none()
+            Label:
+                id: curves_value
+                text: app.curves_text
+                size_hint_y: None
+                height: dp(26)
+                font_size: '13sp'
+                halign: 'left'
+                text_size: self.size
+                color: 0.7, 0.75, 0.8, 1
+
+            GridLayout:
+                cols: 4
+                size_hint_y: None
+                height: dp(44)
+                Chip:
+                    id: itf_ccid
+                    text: 'CCID'
+                    state: 'down'
+                Chip:
+                    id: itf_wcid
+                    text: 'WCID'
+                    state: 'down'
+                Chip:
+                    id: itf_hid
+                    text: 'HID'
+                    state: 'down'
+                Chip:
+                    id: itf_kb
+                    text: 'KB'
+
+            DangerButton:
+                text: '@@btn_write_phy@@'
+                on_release: app.write_phy()
+
+            SectionLabel:
+                text: '@@sec_security@@'
+            Label:
+                id: sec_status
+                text: app.secure_text
+                size_hint_y: None
+                height: dp(28)
+                font_size: '14sp'
+                halign: 'left'
+                text_size: self.size
+                color: 0.8, 0.85, 0.9, 1
+            PrimaryButton:
+                text: '@@btn_read_secure@@'
+                on_release: app.read_secure()
+            Row:
+                FieldLabel:
+                    text: '@@field_bootkey@@'
+                TextInput:
+                    id: bootkey
+                    multiline: False
+                    input_filter: 'int'
+                    text: '0'
+            Chip:
+                id: chk_lock
+                size_hint_y: None
+                height: dp(40)
+                text: '@@chk_lock@@'
+            DangerButton:
+                text: '@@btn_secure_boot@@'
+                on_release: app.set_secure_boot()
+
+            SectionLabel:
+                text: '@@sec_firmware@@'
+            MenuButton:
+                text: '@@btn_wink@@'
+                on_release: app.wink()
+            MenuButton:
+                text: '@@btn_reboot@@'
+                on_release: app.reboot(False)
+            MenuButton:
+                text: '@@btn_reboot_bootsel@@'
+                on_release: app.reboot(True)
+            MenuButton:
+                text: '@@btn_disconnect@@'
+                on_release: app.disconnect()
+            MenuButton:
+                text: '@@btn_back_scan@@'
+                on_release: app.go('scan')
+            MenuButton:
+                text: '@@btn_logs@@'
+                on_release: app.go('log')
+"""
+
+KV_LOG = """
+BoxLayout:
+    orientation: 'vertical'
+    canvas.before:
+        Color:
+            rgba: 0.071, 0.086, 0.110, 1.000
+        Rectangle:
+            pos: self.pos
+            size: self.size
+    padding: dp(12)
+    spacing: dp(8)
+    Label:
+        text: '@@log_title@@'
+        font_size: '20sp'
+        size_hint_y: None
+        height: dp(36)
+    ScrollView:
+        Label:
+            id: logview
+            text: app.log_text
+            size_hint_y: None
+            height: max(self.texture_size[1], dp(400))
+            text_size: self.width, None
+            font_size: '12sp'
             halign: 'left'
             valign: 'top'
-        ScrollView:
-            GridLayout:
-                cols: 1
-                size_hint_y: None
-                height: self.minimum_height
-                spacing: dp(6)
-                padding: 0, dp(6)
-
-                MenuButton:
-                    text: '@@btn_refresh@@'
-                    on_release: app.refresh()
-                MenuButton:
-                    text: '@@btn_read_phy@@'
-                    on_release: app.read_phy()
-
-                SectionLabel:
-                    text: '@@sec_phy@@'
-                Row:
-                    FieldLabel:
-                        text: '@@field_vid@@'
-                    TextInput:
-                        id: vid
-                        multiline: False
-                        input_filter: 'int'
-                Row:
-                    FieldLabel:
-                        text: '@@field_pid@@'
-                    TextInput:
-                        id: pid
-                        multiline: False
-                        input_filter: 'int'
-                Row:
-                    FieldLabel:
-                        text: '@@field_usb_product@@'
-                    TextInput:
-                        id: usb_product
-                        multiline: False
-                Row:
-                    FieldLabel:
-                        text: '@@field_led_gpio@@'
-                    TextInput:
-                        id: led_gpio
-                        multiline: False
-                        input_filter: 'int'
-                Row:
-                    FieldLabel:
-                        text: '@@field_led_btness@@'
-                    TextInput:
-                        id: led_btness
-                        multiline: False
-                        input_filter: 'int'
-                Row:
-                    FieldLabel:
-                        text: '@@field_led_driver@@'
-                    Spinner:
-                        id: led_driver
-                        values: ['PICO', 'PIMORONI', 'WS2812', 'CYW43', 'NEOPIXEL', 'NONE']
-                        text: 'PICO'
-                        font_name: 'AppFont'
-                        font_size: '15sp'
-                Row:
-                    FieldLabel:
-                        text: '@@field_up_btn@@'
-                    TextInput:
-                        id: up_btn
-                        multiline: False
-                        input_filter: 'int'
-
-                SectionLabel:
-                    text: '@@sec_opts@@'
-                GridLayout:
-                    cols: 2
-                    size_hint_y: None
-                    height: dp(88)
-                    Chip:
-                        id: opt_wcid
-                        text: '@@opt_wcid@@'
-                    Chip:
-                        id: opt_dimm
-                        text: '@@opt_dimm@@'
-                    Chip:
-                        id: opt_no_reset
-                        text: '@@opt_no_reset@@'
-                    Chip:
-                        id: opt_led_steady
-                        text: '@@opt_led_steady@@'
-
-                SectionLabel:
-                    text: '@@sec_curves@@'
-                {{CURVE_GRID}}
-                BoxLayout:
-                    size_hint_y: None
-                    height: dp(40)
-                    spacing: dp(6)
-                    Button:
-                        font_name: 'AppFont'
-                        text: '@@curves_all@@'
-                        on_release: app.curves_all()
-                    Button:
-                        font_name: 'AppFont'
-                        text: '@@curves_none@@'
-                        on_release: app.curves_none()
-                Label:
-                    id: curves_value
-                    text: app.curves_text
-                    size_hint_y: None
-                    height: dp(26)
-                    font_size: '13sp'
-                    halign: 'left'
-                    text_size: self.size
-                    color: 0.7, 0.75, 0.8, 1
-
-                GridLayout:
-                    cols: 4
-                    size_hint_y: None
-                    height: dp(44)
-                    Chip:
-                        id: itf_ccid
-                        text: 'CCID'
-                        state: 'down'
-                    Chip:
-                        id: itf_wcid
-                        text: 'WCID'
-                        state: 'down'
-                    Chip:
-                        id: itf_hid
-                        text: 'HID'
-                        state: 'down'
-                    Chip:
-                        id: itf_kb
-                        text: 'KB'
-
-                MenuButton:
-                    text: '@@btn_write_phy@@'
-                    on_release: app.write_phy()
-
-                SectionLabel:
-                    text: '@@sec_security@@'
-                Label:
-                    id: sec_status
-                    text: app.secure_text
-                    size_hint_y: None
-                    height: dp(28)
-                    font_size: '14sp'
-                    halign: 'left'
-                    text_size: self.size
-                    color: 0.8, 0.85, 0.9, 1
-                MenuButton:
-                    text: '@@btn_read_secure@@'
-                    on_release: app.read_secure()
-                Row:
-                    FieldLabel:
-                        text: '@@field_bootkey@@'
-                    TextInput:
-                        id: bootkey
-                        multiline: False
-                        input_filter: 'int'
-                        text: '0'
-                Chip:
-                    id: chk_lock
-                    size_hint_y: None
-                    height: dp(40)
-                    text: '@@chk_lock@@'
-                MenuButton:
-                    text: '@@btn_secure_boot@@'
-                    on_release: app.set_secure_boot()
-
-                SectionLabel:
-                    text: '@@sec_firmware@@'
-                MenuButton:
-                    text: '@@btn_wink@@'
-                    on_release: app.wink()
-                MenuButton:
-                    text: '@@btn_reboot@@'
-                    on_release: app.reboot(False)
-                MenuButton:
-                    text: '@@btn_reboot_bootsel@@'
-                    on_release: app.reboot(True)
-                MenuButton:
-                    text: '@@btn_disconnect@@'
-                    on_release: app.disconnect()
-                MenuButton:
-                    text: '@@btn_back_scan@@'
-                    on_release: app.go('scan')
-                MenuButton:
-                    text: '@@btn_logs@@'
-                    on_release: app.go('log')
-
-<LogScreen>:
-    name: 'log'
-    BoxLayout:
-        orientation: 'vertical'
-        padding: dp(12)
-        spacing: dp(8)
-        Label:
-            text: '@@log_title@@'
-            font_size: '20sp'
-            size_hint_y: None
-            height: dp(36)
-        ScrollView:
-            Label:
-                id: logview
-                text: app.log_text
-                size_hint_y: None
-                height: max(self.texture_size[1], dp(400))
-                text_size: self.width, None
-                font_size: '12sp'
-                halign: 'left'
-                valign: 'top'
-                color: 0.8, 0.85, 0.9, 1
-        MenuButton:
-            text: '@@btn_clear@@'
-            on_release: app.clear_log()
-        MenuButton:
-            text: '@@btn_back@@'
-            on_release: app.go('device' if app.connected else 'scan')
+            color: 0.8, 0.85, 0.9, 1
+    MenuButton:
+        text: '@@btn_clear@@'
+        on_release: app.clear_log()
+    MenuButton:
+        text: '@@btn_back@@'
+        on_release: app.go('device' if app.connected else 'scan')
 """
 
 
@@ -438,25 +515,27 @@ def _kv_escape(text: str) -> str:
 def _curve_grid_kv() -> str:
     """Generate the curve toggles; 11 entries are painful to keep by hand.
 
-    The {{CURVE_GRID}} token sits 16 spaces deep in KV_TEMPLATE, and string
-    replacement only indents the *first* line of the substituted text - so
-    every line here carries absolute indentation, and the leading indent of the
-    very first one is stripped on the way out.
+    Indentation here is relative; _kv() re-indents everything but the first
+    line to the column where the {{CURVE_GRID}} placeholder actually sits, so
+    this function does not need to know the template's own indentation.
     """
-    rows, per_row, pad = [], 3, " " * 16
+    rows, per_row = [], 3
+    # Relative indentation only. _kv() re-indents everything but the first line
+    # to the column where the {{CURVE_GRID}} placeholder actually sits, which
+    # keeps this function independent of the template's own indentation.
+    BODY = " " * 4
     for i in range(0, len(CURVES), per_row):
         chunk = CURVES[i:i + per_row]
-        rows.append(pad + "GridLayout:\n"
-                    + pad + "    cols: %d\n" % per_row
-                    + pad + "    size_hint_y: None\n"
-                    + pad + "    height: dp(40)\n")
+        rows.append("GridLayout:\n")
+        rows.append(BODY + "cols: %d\n" % per_row)
+        rows.append(BODY + "size_hint_y: None\n")
+        rows.append(BODY + "height: dp(40)\n")
         for j, (key, _bit) in enumerate(chunk):
-            rows.append(pad + "    Chip:\n"
-                        + pad + "        id: cv%d\n" % (i + j)
-                        + pad + "        text: '@@%s@@'\n" % key
-                        + pad + "        on_release: app.curves_changed()\n")
-    text = "".join(rows)
-    return text[len(pad):] if text.startswith(pad) else text
+            rows.append(BODY + "Chip:\n")
+            rows.append(BODY + "    id: cv%d\n" % (i + j))
+            rows.append(BODY + "    text: '@@%s@@'\n" % key)
+            rows.append(BODY + "    on_release: app.curves_changed()\n")
+    return "".join(rows)
 
 
 class PicoKeyApp(App):
@@ -467,6 +546,10 @@ class PicoKeyApp(App):
     curves_text = StringProperty("")
     lang_values = ListProperty([i18n.LANG_NAMES[c] for c in i18n.LANGS])
     lang_current = StringProperty(i18n.LANG_NAMES[i18n.DEFAULT_LANG])
+    # Bound to `disabled:` in the MenuButton rule - greys the buttons out while
+    # a USB operation is in flight, which stops double taps from queueing a
+    # second transfer on a transport that is already mid-exchange.
+    busy = BooleanProperty(False)
     connected = False
 
     def __init__(self, **kwargs):
@@ -477,9 +560,7 @@ class PicoKeyApp(App):
         self.pk = None
         self.channel = None
         self._channels = []
-        self._busy = False
         self._switching_lang = False
-        self._loaded_kv = None
         self._rules_loaded = False
         # structured device data, so the info block can be re-rendered when the
         # language changes without talking to the device again
@@ -507,29 +588,70 @@ class PicoKeyApp(App):
         self._load_language()
         self.status_text = i18n.t("scan_intro")
         self.device_text = i18n.t("not_connected")
-        return self._load_kv()
+        root = self._build_root()
+        self._fill_screens(root)
+        return root
 
-    def _kv(self) -> str:
+    def _kv(self, template: str) -> str:
+        """Fill in the @@key@@ and {{TOKEN}} holes of one screen template."""
         def rep(match):
             return _kv_escape(i18n.t(match.group(1)))
 
-        kv = _TOKEN.sub(lambda m: {"CURVE_GRID": _curve_grid_kv()}.get(m.group(1), ""),
-                        KV_TEMPLATE)
+        kv = _TOKEN.sub(self._expand_token(template), template)
         return _PLACEHOLDER.sub(rep, kv)
 
-    def _load_kv(self):
-        """Build the widget tree for the current language."""
+    @staticmethod
+    def _expand_token(template):
+        """Return the replacement for a {{TOKEN}} placeholder.
+
+        The placeholder already carries the template's leading whitespace, but
+        that only reaches the first generated line - the rest would land at
+        column 0 and break the parser. So every line after the first gets the
+        placeholder's own indent added back.
+        """
+        def replace(match):
+            name = match.group(1)
+            if name != "CURVE_GRID":
+                return ""
+            # indentation of the line the placeholder sits on
+            head = template[:match.start()]
+            indent = head[head.rfind("\n") + 1:] if "\n" in head else head
+            if indent.strip():
+                indent = ""
+            text = _curve_grid_kv()
+            lines = text.split("\n")
+            out = [lines[0]]
+            for line in lines[1:]:
+                out.append(indent + line if line.strip() else line)
+            return "\n".join(out)
+
+        return replace
+
+    def _build_root(self):
+        """Create the screen manager. Called once, at startup."""
         if not self._rules_loaded:
             Builder.load_string(KV_RULES)
             self._rules_loaded = True
-        kv = self._kv()
-        if self._loaded_kv:
-            try:
-                Builder.unload_string(self._loaded_kv)
-            except Exception:
-                pass
-        self._loaded_kv = kv
-        return Builder.load_string(kv)
+        return Builder.load_string(KV_ROOT)
+
+    def _fill_screens(self, root=None):
+        """(Re)build the contents of all three screens in the current language.
+
+        `root` is explicit because build() runs before App.root is assigned.
+
+        Each body is an anonymous widget, so this can be called as often as
+        needed without accumulating class rules. The old content is removed
+        first - the widgets are simply dropped, no Builder state involved.
+        """
+        root = root if root is not None else self.root
+        for name, template in (("scan", KV_SCAN), ("device", KV_DEVICE), ("log", KV_LOG)):
+            screen = root.get_screen(name)
+            old = getattr(screen, "content", None)
+            if old is not None:
+                screen.remove_widget(old)
+            content = Builder.load_string(self._kv(template))
+            screen.content = content          # keeps .ids reachable, see ids_of()
+            screen.add_widget(content)
 
     # ----------------------------------------------------------- language
 
@@ -571,6 +693,15 @@ class PicoKeyApp(App):
             return
         self.set_language(code)
 
+    def ids_of(self, screen_name: str):
+        """ids of a screen body.
+
+        They live on the content widget, not on the Screen itself, because the
+        body is built as an anonymous root.
+        """
+        screen = self.root.get_screen(screen_name)
+        return getattr(screen, "content", screen).ids
+
     def set_language(self, code: str):
         """Switch language and rebuild the UI with the new strings."""
         i18n.set_lang(code)
@@ -586,18 +717,20 @@ class PicoKeyApp(App):
         self._render_secure_text()
         self._render_curves_text()
 
-        current = self.root.current if self.root else "scan"
+        # No need to touch the Window at all: the screen manager stays put and
+        # only the three bodies are rebuilt, so every binding keeps working and
+        # the buttons stay tappable.
         self._switching_lang = True
         try:
-            self.root = self._load_kv()
+            self._fill_screens()
         finally:
             self._switching_lang = False
-        self.root.current = current
 
-        if current == "scan" and self._channels:
+        # The scan list and the PHY inputs are built imperatively, so they have
+        # to be repopulated on the freshly built bodies.
+        if self._channels:
             self._render_channel_list(self._channels)
-        elif current == "device":
-            self._fill_phy_fields()
+        self._fill_phy_fields()
         self.log(f"[i18n] language -> {code}")
 
     # --------------------------------------------------------------- log
@@ -616,7 +749,7 @@ class PicoKeyApp(App):
     # -------------------------------------------------------- worker glue
 
     def _worker(self, fn, on_ok=None, busy_text=None):
-        if self._busy:
+        if self.busy:
             return
 
         def run():
@@ -631,18 +764,20 @@ class PicoKeyApp(App):
             if on_ok:
                 Clock.schedule_once(lambda dt: on_ok(result))
 
-        self._busy = True
+        # Drives `disabled:` on every MenuButton, so setting it here is
+        # what actually greys the buttons out.
+        self.busy = True
         self.status_text = busy_text or i18n.t("msg_processing")
         threading.Thread(target=run, daemon=True).start()
 
     def _fail(self, exc, tb):
-        self._busy = False
+        self.busy = False
         self.log(f"[error] {exc}")
         self.log(tb)
         self.status_text = i18n.t("msg_failed", err=exc)
 
     def _done(self, text=None):
-        self._busy = False
+        self.busy = False
         if text:
             self.status_text = text
 
@@ -660,7 +795,7 @@ class PicoKeyApp(App):
 
     def _render_channel_list(self, channels):
         self._done()
-        box = self.root.get_screen("scan").ids.list_box
+        box = self.ids_of("scan").list_box
         box.clear_widgets()
         if not channels:
             self.status_text = i18n.t("scan_none_hint")
@@ -782,7 +917,7 @@ class PicoKeyApp(App):
         if phy is None or not self.root:
             return
         try:
-            ids = self.root.get_screen("device").ids
+            ids = self.ids_of("device")
         except Exception:
             return
         if phy.vid is not None:
@@ -837,13 +972,13 @@ class PicoKeyApp(App):
         self._worker(work, done, i18n.t("msg_reading_phy"))
 
     def curves_all(self):
-        ids = self.root.get_screen("device").ids
+        ids = self.ids_of("device")
         for i in range(len(CURVES)):
             ids[f"cv{i}"].state = "down"
         self._render_curves_text()
 
     def curves_none(self):
-        ids = self.root.get_screen("device").ids
+        ids = self.ids_of("device")
         for i in range(len(CURVES)):
             ids[f"cv{i}"].state = "normal"
         self._render_curves_text()
@@ -859,7 +994,7 @@ class PicoKeyApp(App):
         if not self.root:
             return 0
         try:
-            ids = self.root.get_screen("device").ids
+            ids = self.ids_of("device")
         except Exception:
             return 0
         value = 0
@@ -869,7 +1004,7 @@ class PicoKeyApp(App):
         return value
 
     def _build_phy(self) -> PhyData:
-        ids = self.root.get_screen("device").ids
+        ids = self.ids_of("device")
         phy = PhyData()
 
         def hexval(text):
@@ -974,7 +1109,7 @@ class PicoKeyApp(App):
 
     def set_secure_boot(self):
         def work():
-            ids = self.root.get_screen("device").ids
+            ids = self.ids_of("device")
             raw = (ids.bootkey.text or "").strip()
             slot = int(raw) if raw else 0
             if not 0 <= slot <= 15:
