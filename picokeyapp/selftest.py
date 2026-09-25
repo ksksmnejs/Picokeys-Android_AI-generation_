@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import struct
 
+from .i18n import t
+
 
 # --------------------------------------------------------------------- fakes
 
@@ -220,10 +222,10 @@ def run() -> str:
     from .cbor_mini import loads, dumps
     from .pk import PicoKey, PhyUsbItf, PhyLedDriver
 
-    lines = ["picokey-android 协议自检", ""]
+    lines = [t("selftest_title"), ""]
 
     # 1. CBOR codec -----------------------------------------------------
-    lines.append("CBOR:")
+    lines.append(t("selftest_cbor") + ":")
     lines.append(_check("map/array/int/bytes",
                         loads(bytes.fromhex("a26161016162820203")) == {"a": 1, "b": [2, 3]}))
     lines.append(_check("negative + text",
@@ -234,7 +236,7 @@ def run() -> str:
 
     # 2. CCID + PicoKey --------------------------------------------------
     lines.append("")
-    lines.append("CCID / APDU:")
+    lines.append(t("selftest_ccid") + ":")
     fake = FakePicoKey()
     conn = FakeConnection(fake)
     transport = ccid.CCIDTransport(conn, label="fake-ccid")
@@ -281,7 +283,7 @@ def run() -> str:
 
     # 3. CTAPHID ---------------------------------------------------------
     lines.append("")
-    lines.append("CTAPHID / FIDO:")
+    lines.append(t("selftest_ctap") + ":")
     fake_fido = FakeFidoKey()
     hid = ctap.CTAPHIDTransport(FakeConnection(fake_fido))
     init = hid.init()
@@ -297,7 +299,7 @@ def run() -> str:
     hid.close()
 
     lines.append("")
-    lines.append("全部通过：协议层（CCID 组帧 / APDU / PHY TLV / CTAPHID / CBOR）行为与上游一致。")
+    lines.append(t("selftest_passed"))
     return "\n".join(lines)
 
 

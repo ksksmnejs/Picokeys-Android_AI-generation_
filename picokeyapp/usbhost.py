@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import threading
 
+from .i18n import t
 from .pk.core.log import get_logger
 
 logger = get_logger("usbhost")
@@ -355,8 +356,7 @@ class Connection:
         manager = usb_manager()
         self._conn = manager.openDevice(device.jdevice)
         if self._conn is None:
-            raise UsbError("UsbManager.openDevice() returned null "
-                           "(no permission or device busy)")
+            raise UsbError(t("err_open_device"))
         self._jintf = device.jdevice.getInterface(interface.index)
         claimed = self._conn.claimInterface(self._jintf, force)
         if not claimed:
@@ -364,13 +364,12 @@ class Connection:
                 self._conn.close()
             except Exception:
                 pass
-            raise UsbError(f"claimInterface() failed for interface {interface.id}. "
-                           "A kernel driver is probably holding it (typical for HID).")
+            raise UsbError(t("err_claim_failed"))
         self.ep_in = interface.ep_in
         self.ep_out = interface.ep_out
         if self.ep_out is None or self.ep_in is None:
             self.close()
-            raise UsbError("Interface has no usable IN/OUT endpoint pair")
+            raise UsbError(t("err_no_endpoints"))
 
     # ------------------------------------------------------------ transfers
 

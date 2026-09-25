@@ -12,6 +12,7 @@ whatever is present into a "channel" the UI can list and connect to:
 from __future__ import annotations
 
 from . import usbhost
+from .i18n import t
 from .pk.core.log import get_logger
 
 logger = get_logger("detect")
@@ -20,11 +21,20 @@ FIDO_USAGE_PAGE = bytes([0x06, 0xD0, 0xF1])     # Usage Page (FIDO Alliance)
 KNOWN_VID_PIDS = {(0xFEFF, 0xFCFD)}             # upstream default
 NAME_HINTS = ("picokey", "pico key", "pol henarejos", "pico keys", "picokeys")
 
+# English fallbacks only - the UI layer renders these through i18n
+# (t('ch_<kind>_title') / t('ch_<kind>_detail')), these strings are what you
+# see if a caller uses Channel.title directly without translating.
 KIND_INFO = {
-    "ccid": ("CCID 智能卡通道", "走 CCID 帧的 APDU，功能最全（设备信息/PHY/安全启动/重启）"),
-    "rescue": ("救援通道 (vendor 0xFF)", "固件没起来或 PC/SC 不可用时的备用通道，同样是 CCID 帧"),
-    "fido": ("FIDO HID 通道", "CTAPHID：WINK 闪灯、authenticatorGetInfo、CTAP2 reset"),
+    "ccid": ("CCID smartcard channel",
+             "APDU over CCID frames, full feature set (info / PHY / secure boot / reboot)"),
+    "rescue": ("Rescue channel (vendor 0xFF)",
+               "Fallback when firmware is down or PC/SC is unusable, same CCID frames"),
+    "fido": ("FIDO HID channel",
+             "CTAPHID: WINK, authenticatorGetInfo, CTAP2 reset"),
 }
+
+# Translation keys for the UI layer, so callers do not have to build them.
+KIND_KEYS = {kind: (f"ch_{kind}_title", f"ch_{kind}_detail") for kind in KIND_INFO}
 
 
 class Channel:
@@ -34,14 +44,22 @@ class Channel:
         self.interface = interface
 
     @property
+    def title_key(self) -> str:
+        title, _ = KIND_KEYS.get(self.kind, (None, None))
+        return title or f"ch_{self.kind}_title"
+
+    @property
+    def detail_key(self) -> str:
+        _, detail = KIND_KEYS.get(self.kind, (None, None))
+        return detail or f"ch_{self.kind}_detail"
+
+    @property
     def title(self) -> str:
-        name, _ = KIND_INFO.get(self.kind, (self.kind, ""))
-        return name
+        return t(self.title_key)
 
     @property
     def detail(self) -> str:
-        _, desc = KIND_INFO.get(self.kind, (self.kind, ""))
-        return desc
+        return t(self.detail_key)
 
     @property
     def label(self) -> str:
@@ -113,20 +131,20 @@ def connect(channel: Channel, timeout: float = 15.0):
 
     dev = channel.device
     if not usbhost.request_permission(dev, timeout=timeout):
-        raise usbhost.UsbError("USB 权限被拒绝（弹窗里要点“允许”，并且只能点一次）")
+        raise usbhost.UsbError(t("err_permission_denied"))
 
     def _reopener():
         return usbhost.Connection(dev, channel.interface)
 
     if not usbhost.has_permission(dev):
-        raise usbhost.UsbError("UsbManager 仍然没有权限")
+        raise usbhost.UsbError(t("err_no_permission"))
 
     conn = usbhost.Connection(dev, channel.interface)
 
     if channel.kind == "fido":
         if not _check_fido(conn, channel.interface):
             conn.close()
-            raise usbhost.UsbError("这个 HID 接口不像 FIDO 设备（报告描述符里没有 usage page 0xF1D0）")
+            raise usbhost.UsbError(t("err_not_fido"))
         transport = ctap.CTAPHIDTransport(conn)
         return "ctap", transport
 
