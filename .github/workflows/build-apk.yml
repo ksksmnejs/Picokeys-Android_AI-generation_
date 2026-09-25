@@ -5,6 +5,28 @@ name: Build Android APK
 # half-finished runs that can no longer be cancelled from the UI.
 on:
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag, e.g. v0.1.0. Leave empty to use v + version from buildozer.spec'
+        required: false
+        default: ''
+      publish:
+        description: 'Publish the APK to Releases'
+        type: boolean
+        default: true
+      draft:
+        description: 'Create the release as a draft (review before publishing)'
+        type: boolean
+        default: false
+      prerelease:
+        description: 'Mark the release as a pre-release'
+        type: boolean
+        default: false
+
+# Needed so GITHUB_TOKEN may create a release and upload assets. Without this
+# the release step fails with "Resource not accessible by integration".
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -129,9 +151,112 @@ jobs:
           ls -la "$HOME/.buildozer/android/platform/android-sdk/" 2>/dev/null
           ls -la "$HOME/.buildozer/android/platform/android-sdk/tools/bin/" 2>/dev/null
 
-      - name: Upload APK
+      # Renamed to a self-describing filename: the raw buildozer output is
+      # something like picokeymanager-0.1.0-arm64_v8a-debug.apk, which says
+      # nothing about what it is once it sits in a release asset list.
+      - name: Prepare release assets
+        id: assets
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          cd "${{ steps.locate.outputs.dir }}"
+          VER=$(python3 -c "
+          import configparser
+          c = configparser.ConfigParser()
+          c.read('buildozer.spec')
+          print(c['app']['version'].strip())
+          " 2>/dev/null || echo "0.1.0")
+          if [ -z "$VER" ]; then VER="0.1.0"; fi
+          TAG="${INPUT_TAG:-v$VER}"
+          case "$TAG" in v*) ;; *) TAG="v$TAG";; esac
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+          rm -rf release && mkdir -p release
+          found=0
+          for f in bin/*.apk; do
+            [ -e "$f" ] || continue
+            cp "$f" "release/picokey-manager-${TAG}-arm64-debug.apk"
+            found=$((found+1))
+          done
+          if [ "$found" -eq 0 ]; then
+            echo "::error::no APK produced in bin/"
+            ls -la bin/ || true
+            exit 1
+          fi
+          ls -la release/
+
+      # Kept as well: artifacts survive even if the release step is skipped or
+      # fails, and they cost nothing extra.
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: picokey-manager-debug
           path: ${{ steps.locate.outputs.dir }}/bin/*.apk
           if-no-files-found: error
+
+      # ------------------------------------------------------------- release
+      - name: Build release notes
+        if: ${{ inputs.publish }}
+        env:
+          # TAG/VER come from the "Prepare release assets" step - they are not
+          # shell variables until they are exported here.
+          TAG: ${{ steps.assets.outputs.tag }}
+          VER: ${{ steps.assets.outputs.version }}
+        run: |
+          cd "${{ steps.locate.outputs.dir }}"
+          cat > release/notes.md <<EOF
+          ## PicoKey Manager ${TAG}
+
+          Android build of the PicoKey Manager (a port of [pypicokey](https://github.com/IsayIsee/pypicokey)).
+
+          - Commit: \`${GITHUB_SHA}\`
+          - Version: \`${VER}\` (from \`buildozer.spec\`)
+          - Architecture: \`arm64-v8a\` (debug build)
+          - Requires: Android 8.0+ with USB host, plus an OTG adapter
+
+          ### Install
+
+          1. Download the APK below.
+          2. Allow "install from unknown sources" for your browser/files app.
+          3. Open the app, tap **Scan USB devices**, and **allow** the USB prompt.
+
+          ### Caveats
+
+          - **Debug build**, signed with the debug key - Android may warn on install.
+          - Written by AI and **never run against a real PicoKey**; treat the app
+            as the suspect first if something misbehaves.
+          - \`WINK\` needs the FIDO HID channel; PHY writes reboot the device.
+          - Read the PHY config before writing it.
+          EOF
+          sed -i 's/^          //' release/notes.md
+          cat release/notes.md
+
+      - name: Create or update GitHub Release
+        if: ${{ inputs.publish }}
+        env:
+          # GITHUB_TOKEN is enough here because `permissions: contents: write`
+          # is declared at the top of this file.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.assets.outputs.tag }}
+          VER: ${{ steps.assets.outputs.version }}
+        run: |
+          cd "${{ steps.locate.outputs.dir }}"
+          FLAGS=()
+          if [ "${{ inputs.draft }}" = "true" ]; then FLAGS+=(--draft); fi
+          if [ "${{ inputs.prerelease }}" = "true" ]; then FLAGS+=(--prerelease); fi
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG exists - replacing the APK"
+            gh release upload "$TAG" release/*.apk --clobber
+            # keep notes in sync with this build
+            gh release edit "$TAG" --notes-file release/notes.md ${FLAGS[@]+"${FLAGS[@]}"}
+          else
+            echo "creating release $TAG"
+            gh release create "$TAG" release/*.apk \
+              --title "PicoKey Manager $VER" \
+              --notes-file release/notes.md ${FLAGS[@]+"${FLAGS[@]}"}
+          fi
+
+          echo "=== release URL ==="
+          gh release view "$TAG" --json url --jq '.url'
