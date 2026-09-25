@@ -23,9 +23,10 @@ firmware.
 install it.
 
 Every run of the **Build Android APK** workflow publishes the freshly built APK
-to Releases automatically, with a notes file carrying the version, the commit
-and the install steps. If a release for that tag already exists, the workflow
-replaces its APK and refreshes the notes instead of creating a duplicate.
+to Releases automatically, with **bilingual (zh/en) release notes** carrying the
+version, the commit, the install steps and the caveats. If a release for that
+tag already exists, the workflow replaces its APK and refreshes the notes
+instead of creating a duplicate.
 
 ---
 

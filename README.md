@@ -17,9 +17,9 @@
 
 **下载**：已编译好的 APK 在本仓库的 [Releases](../../releases) 页面，直接取最新版本安装即可。
 
-每次跑 **Build Android APK** 工作流，编译好的 APK 会**自动发布到 Releases**
-（带版本号、commit 号、安装说明的 release notes）。如果同一个 tag 的 release
-已存在，工作流会替换里面的 APK 并更新说明，不会重复创建。
+每次跑 **Build Android APK** 工作流，编译好的 APK 会**自动发布到 Releases**，
+release notes 自动生成且为**中英双语**（含版本号、commit 号、安装步骤与注意事项）。
+如果同一个 tag 的 release 已存在，工作流会替换里面的 APK 并更新说明，不会重复创建。
 
 ---
 
