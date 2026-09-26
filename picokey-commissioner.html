@@ -113,8 +113,8 @@
 <!-- ============ 2. 选固件 ============ -->
 <h2 data-i18n="secPick">2. 选择固件文件</h2>
 <div class="card">
-  <input type="file" id="fileInput" accept=".bin,.uf2,.img,application/octet-stream" style="display:none" onchange="onFile(event)">
-  <label class="filebtn" for="fileInput" id="fileLabel" data-i18n="btnPickFile">点击选择 .bin 固件文件</label>
+  <input type="file" id="fileInput" accept="*" style="display:none" onchange="onFile(event)">
+  <label class="filebtn" for="fileInput" id="fileLabel" data-i18n="btnPickFile">点击选择固件文件</label>
   <div id="fileOut"></div>
 </div>
 
@@ -130,13 +130,6 @@
   <div id="bar" class="hidden"><div id="barInner"></div></div>
   <div class="sub" id="progText" style="margin-top:6px"></div>
   <div class="banner warn" data-i18n="flashWarn" style="margin-top:10px"></div>
-</div>
-
-<!-- ============ 4. 安全启动 ============ -->
-<h2 data-i18n="secSecure">4. 安全启动 / 安全锁</h2>
-<div class="card">
-  <div class="banner warn" data-i18n="secureBlocked"></div>
-  <div id="secureInfo"></div>
 </div>
 
 <!-- ============ 日志 ============ -->
@@ -188,17 +181,16 @@ const I18N = {
     title:"PicoKey 网页刷写工具", subtitle:"通过 WebUSB 给 ESP32-S2 / S3 刷入固件 · 无需安装 App · 无需编译",
     scopeWarn:"⚠️ 本页只能刷写固件，不能配置运行中的设备。\n\nChrome 屏蔽了浏览器对智能卡（CCID）接口的访问，而 PicoKey 固件正常运行时用的正是 CCID —— 所以固件跑起来以后，浏览器根本看不到这块板子。\n\n能连上的情况是：板子处于下载模式。此时它暴露的是串口/JTAG 接口（不在屏蔽列表），浏览器可以接管，因此刷写可行。改 VID/PID、开安全启动这类需要设备正常运行的配置，请用安卓 App。",
     secConnect:"1. 连接处于下载模式的板子", secPick:"2. 选择固件文件",
-    secFlash:"3. 刷入固件", secSecure:"4. 安全启动 / 安全锁",
+    secFlash:"3. 刷入固件",
     secLog:"日志", secChangelog:"更新日志", changelogTitle:"本页的更新记录",
     btnConnect:"选择 USB 设备", btnDiag:"诊断接口", btnDisconnect:"断开",
-    btnPickFile:"点击选择 .bin 固件文件", btnFlash:"刷入（会覆盖现有固件）",
+    btnPickFile:"点击选择固件文件", btnFlash:"刷入（会覆盖现有固件）",
     btnClearLog:"清空日志", btnCopyLog:"复制日志", btnModalOk:"知道了",
     hintConnect:"让板子进入下载模式后再点上面的按钮。不同板子进入方式不同，请参考板子的说明。",
     reconnectTip:"若选择器一直为空，先拔插设备再点一次。",
     lblOffset:"写入偏移地址（十六进制）",
     hintOffset:"PicoKeys 固件通常是 0。只有在你明确知道要写到别处时才改，填错会刷成砖（可救回：ROM 下载模式还在）。",
     flashWarn:"⚠️ 刷写路径未在真机上验证过。第一次建议先确认日志里的每一步，再真正执行。刷错通常可救回——ESP32 的 ROM 下载模式不会被刷掉。",
-    secureBlocked:"本页无法开启安全启动 / 安全锁。\n\n原因同上：这两个操作要通过 CCID 向正常运行的固件发送指令，而 Chrome 屏蔽了 CCID。下载模式下固件没运行，也就无从配置。\n\n请用安卓 App（PicoKey Manager）来做这件事，它走的是 Android USB Host API，不受此限制。\n\n另外提醒：安全启动 / 安全锁烧的是 OTP 熔丝，永久不可逆。写入前请确认已备份、且接受只能运行官方签名固件的后果。",
     tail1:"esptool ROM 协议为独立实现，不含上游代码",
     tail2:"需要 HTTPS + Chrome/Edge · 仅支持 ESP32-S2 / S3 下载模式",
     // runtime
@@ -223,7 +215,7 @@ const I18N = {
     sniffZip:"这看起来是 ZIP 压缩包，不是固件本体，请先解压。",
     sniffGzip:"这看起来是 gzip 压缩包，不是固件本体，请先解压。",
     sniffHtml:"这看起来是网页文件 —— 大概是下载时拿到了错误页面，请重新下载真正的固件。",
-    sniffUnknown:"无法识别文件类型。请确认这是 ESP32 的 .bin 固件镜像。",
+    sniffUnknown:"无法识别文件类型。请确认这是 ESP32 的固件镜像。",
     flashing:"正在刷写…",
     flashProgress:"块 {i} / {n}",
     flashOk:"刷写完成，共写入 {n} 字节。拔插一次让板子以新固件启动。",
@@ -236,6 +228,10 @@ const I18N = {
     espStatus:"引导程序返回错误状态 {code}",
     spiAttachNote:"SPI flash 挂载返回非零状态，继续尝试",
     claimFail:"无法占用接口（可能被系统驱动或其它 App 占用）",
+    mNoUsbTitle:"浏览器不支持 WebUSB",
+    mNoUsbBody:"WebUSB 是这个页面连接设备的前提，当前浏览器没有提供它。\n\n请用 Android 手机上的 Chrome 或 Edge 打开本页。国内常见的 UC、QQ 浏览器、微信内置浏览器大多不支持。\n\n另外注意：地址必须是 https:// 开头，且不能嵌在别人的页面里（部分在线编辑器的预览是 iframe，同样拿不到 WebUSB）。",
+    mNoHttpsTitle:"页面不在 HTTPS 下",
+    mNoHttpsBody:"浏览器只在安全上下文里开放 WebUSB，当前页面不是。\n\n如果你是通过 GitHub Pages 打开的，地址应该是 https://<用户名>.github.io/<仓库名>/ —— 确认开头是 https，且没有被改成 http。",
     mNoDevTitle:"没找到设备",
     mNoDevBody:"选择器里一个设备都没有。\n\n按这个顺序排查：\n\n1. 板子必须处于下载模式。正常运行 PicoKey 固件时它用的是 CCID 接口，Chrome 会屏蔽，设备直接不出现。\n\n2. 换一根确认能传数据的线，纯充电线不行。\n\n3. 确认没有被其它 App 占用（手机上的串口助手可能抢）。\n\n4. 桌面端还要注意：Chrome 会隐藏被系统驱动接管的设备（U 盘、摄像头、串口、HID 键鼠等）。",
     mWrongModeTitle:"可能不在下载模式",
@@ -243,23 +239,22 @@ const I18N = {
     mFlashFailTitle:"刷写失败",
     mFlashFailBody:"刷写过程中出错。\n\nESP32 通常可以救回：ROM 下载模式烧不掉，重新进入下载模式再刷一次即可。\n\n详情看日志里的具体报错。",
     // 页面内更新日志
-    changelogText:"2026-10-09\n· 本页改为 ESP32-S2 / S3 固件刷写工具\n· 实现 esptool ROM 协议（SLIP 组帧 + FLASH_BEGIN/DATA/END），不上传 flasher stub\n· 顶部如实说明：Chrome 屏蔽 CCID，本页无法配置运行中的设备\n· 安全启动 / 安全锁标注为不可用，并引导到安卓 App\n· 选择设备失败时弹出排查指引，不再只显示“已取消”\n· 启动时自动复用上次已授权的设备\n\n更早\n· 原为 CCID 配置工具（因浏览器屏蔽 CCID 而无法工作）\n· 增加中英双语切换",
+    changelogText:"2026-10-09\n· 本页改为 ESP32-S2 / S3 固件刷写工具\n· 实现 esptool ROM 协议（SLIP 组帧 + FLASH_BEGIN/DATA/END），不上传 flasher stub\n· 顶部如实说明：Chrome 屏蔽 CCID，本页无法配置运行中的设备\n· 移除「安全启动 / 安全锁」整节（浏览器做不到，留着只是误导）\n· 选文件不再限定 .bin，按内容识别格式\n· 浏览器不支持 WebUSB / 非 HTTPS 时恢复启动弹窗（之前只写进日志，容易滑过去就看不到）\n· 选择设备失败时弹出排查指引，不再只显示“已取消”\n· 启动时自动复用上次已授权的设备\n\n更早\n· 原为 CCID 配置工具（因浏览器屏蔽 CCID 而无法工作）\n· 增加中英双语切换",
   },
   en: {
     title:"PicoKey Web Flasher", subtitle:"Flash ESP32-S2 / S3 firmware over WebUSB · no app · no compiling",
     scopeWarn:"⚠️ This page can only FLASH firmware — it cannot configure a running device.\n\nChrome blocks browser access to the smart-card (CCID) interface, and CCID is exactly what PicoKey firmware uses while running. So once the firmware is up, the browser cannot see the board at all.\n\nWhat does work: download mode. There the ESP32 exposes a serial/JTAG interface, which is not on the blocked list, so the browser can claim it and flashing is possible. For anything that needs a running device — changing VID/PID, enabling secure boot — use the Android app.",
     secConnect:"1. Connect the board in download mode", secPick:"2. Pick a firmware file",
-    secFlash:"3. Flash it", secSecure:"4. Secure boot / secure lock",
+    secFlash:"3. Flash it",
     secLog:"Log", secChangelog:"Changelog", changelogTitle:"Changes to this page",
     btnConnect:"Select USB device", btnDiag:"Diagnose", btnDisconnect:"Disconnect",
-    btnPickFile:"Tap to pick a .bin firmware file", btnFlash:"Flash (overwrites current firmware)",
+    btnPickFile:"Tap to pick a firmware file", btnFlash:"Flash (overwrites current firmware)",
     btnClearLog:"Clear log", btnCopyLog:"Copy log", btnModalOk:"Got it",
     hintConnect:"Put the board into download mode, then tap the button. How you do that differs per board — check the board's own documentation.",
     reconnectTip:"If the chooser keeps coming up empty, unplug and replug, then tap again.",
     lblOffset:"Write offset (hex)",
     hintOffset:"Usually 0 for PicoKeys firmware. Only change it if you know exactly why — a wrong offset bricks the flash until you re-flash (recoverable: the ROM download mode survives).",
     flashWarn:"⚠️ This flashing path has NOT been verified on real hardware. For the first run, read the log and confirm each step before committing. A bad flash is usually recoverable — the ESP32 ROM download mode cannot be erased.",
-    secureBlocked:"This page cannot enable secure boot / secure lock.\n\nSame reason as above: both are sent over CCID to a running firmware, and Chrome blocks CCID. In download mode the firmware is not running, so there is nothing to configure.\n\nUse the Android app (PicoKey Manager) instead — it talks to the Android USB Host API, which has no such restriction.\n\nAlso: secure boot / secure lock burn OTP fuses and are permanent. Back up first, and accept that the device will only run officially signed firmware.",
     tail1:"esptool ROM protocol, implemented independently",
     tail2:"Requires HTTPS + Chrome/Edge · ESP32-S2 / S3 download mode only",
     noWebUSB:"WebUSB is not supported. Use Chrome or Edge on Android (over HTTPS).",
@@ -283,7 +278,7 @@ const I18N = {
     sniffZip:"That looks like a ZIP archive, not the firmware itself — extract it first.",
     sniffGzip:"That looks like a gzip archive, not the firmware itself — extract it first.",
     sniffHtml:"That looks like a web page — you probably downloaded an error page. Re-download the real firmware.",
-    sniffUnknown:"Could not identify the file. Make sure this is an ESP32 .bin firmware image.",
+    sniffUnknown:"Could not identify the file. Make sure this is an ESP32 firmware image.",
     flashing:"Flashing…",
     flashProgress:"Block {i} / {n}",
     flashOk:"Done — wrote {n} bytes. Unplug and replug so the board boots the new firmware.",
@@ -296,13 +291,17 @@ const I18N = {
     espStatus:"Bootloader returned status {code}",
     spiAttachNote:"SPI flash attach returned non-zero; continuing anyway",
     claimFail:"Could not claim the interface (held by a system driver or another app?)",
+    mNoUsbTitle:"This browser has no WebUSB",
+    mNoUsbBody:"WebUSB is how this page talks to the device, and this browser does not expose it.\n\nOpen the page in Chrome or Edge on Android. Many bundled/in-app browsers (WeChat, UC, QQ) do not support it.\n\nAlso: the address must start with https://, and the page must not be embedded in someone else's - the preview pane of an online editor is an iframe, which gets no WebUSB either.",
+    mNoHttpsTitle:"Page is not on HTTPS",
+    mNoHttpsBody:"Browsers only expose WebUSB in a secure context, and this page is not one.\n\nIf you are using GitHub Pages the URL should look like https://<user>.github.io/<repo>/ — check that it really starts with https and was not downgraded to http.",
     mNoDevTitle:"No device found",
     mNoDevBody:"The chooser came up empty.\n\nWork through these in order:\n\n1. The board must be in DOWNLOAD MODE. Running normal PicoKey firmware it uses CCID, which Chrome blocks, so the device does not appear at all.\n\n2. Use a cable you know carries data; charge-only cables do not work.\n\n3. Make sure no other app holds it (a serial terminal on the phone can grab it).\n\n4. On desktop, Chrome also hides devices already claimed by a system driver (USB drives, cameras, serial ports, HID keyboards/mice).",
     mWrongModeTitle:"Probably not in download mode",
     mWrongModeBody:"Connected, but the handshake failed — the bootloader did not answer.\n\nThat usually means the board is not in download mode: it is running firmware normally (which uses CCID and could not be claimed at all), or it is running something else.\n\nPut it into download mode and try again; the method differs per board, so check the board's documentation.",
     mFlashFailTitle:"Flash failed",
     mFlashFailBody:"Something went wrong while flashing.\n\nAn ESP32 is usually recoverable: the ROM download mode cannot be erased, so re-enter download mode and flash again.\n\nSee the log for the exact error.",
-    changelogText:"2026-10-09\n· This page is now an ESP32-S2 / S3 firmware flasher\n· Implemented the esptool ROM protocol (SLIP framing + FLASH_BEGIN/DATA/END), no flasher stub uploaded\n· The top banner now states plainly that Chrome blocks CCID, so this page cannot configure a running device\n· Secure boot / secure lock marked unavailable, with a pointer to the Android app\n· When no device appears the page explains why instead of just saying \"cancelled\"\n· Previously authorised devices are reused on load\n\nEarlier\n· Was a CCID configuration tool (unusable: browsers block CCID)\n· Added the Chinese / English switch",
+    changelogText:"2026-10-09\n· This page is now an ESP32-S2 / S3 firmware flasher\n· Implemented the esptool ROM protocol (SLIP framing + FLASH_BEGIN/DATA/END), no flasher stub uploaded\n· The top banner now states plainly that Chrome blocks CCID, so this page cannot configure a running device\n· Removed the \"Secure boot / secure lock\" section entirely (impossible here)\n· File picking no longer assumes .bin; the format is detected from content\n· Restored the startup popup for no-WebUSB / non-HTTPS (a log line is too easy to scroll past)\n· When no device appears the page explains why instead of just saying \"cancelled\"\n· Previously authorised devices are reused on load\n\nEarlier\n· Was a CCID configuration tool (unusable: browsers block CCID)\n· Added the Chinese / English switch",
   }
 };
 
@@ -316,7 +315,6 @@ function setLang(l){
   document.querySelectorAll('[data-i18n]').forEach(el=>{
     el.textContent = t(el.getAttribute('data-i18n'));
   });
-  renderSecureInfo();
   log('lang = ' + l, 'dim');
 }
 
@@ -734,21 +732,27 @@ async function doFlash(){
   }
 }
 
-/* --------------------------- secure boot info --------------------------- */
-function renderSecureInfo(){
-  const el = document.getElementById('secureInfo');
-  el.innerHTML =
-    '<div class="kv"><span>CCID (0x0B)</span><span style="color:#fca5a5">⛔ ' +
-    (LANG==='zh' ? '浏览器屏蔽' : 'blocked by browser') + '</span></div>';
-}
 
 /* --------------------------- boot --------------------------- */
 setLang('zh');
-if (!navigator.usb) log(t('noWebUSB'),'err');
-else if (!window.isSecureContext) log(t('notSecure'),'err');
-renderSecureInfo();
 updateFlashGate();
-navigator.usb && navigator.usb.addEventListener('disconnect', ()=>{});
+
+// Belt and braces: the modal must start hidden even if the stylesheet fails
+// to load or someone edits the markup. Without this a stuck overlay would
+// swallow every tap on the page.
+closeModal();
+
+/* Fatal, page-wide problems pop up instead of hiding in the log - a red line
+   in the log is exactly the kind of thing people scroll straight past. */
+if (!navigator.usb){
+  log(t('noWebUSB'),'err');
+  showModal('mNoUsbTitle','mNoUsbBody','err');
+} else if (!window.isSecureContext){
+  log(t('notSecure'),'err');
+  showModal('mNoHttpsTitle','mNoHttpsBody','err');
+} else {
+  log('WebUSB ready. ' + t('hintConnect'),'dim');
+}
 </script>
 </body>
 </html>
