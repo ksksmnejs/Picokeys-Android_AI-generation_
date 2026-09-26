@@ -113,10 +113,6 @@ Authenticator can manage the device).
 - **Bilingual UI** — 简体中文 / English switchable at the top; the choice is remembered
 - **Protocol self-test** — runs the stack against a fake USB pipe, no hardware needed
 
-**One-click firmware switching is not implemented**: the desktop app bundles the
-firmware images, and this project has neither those files nor the right to
-redistribute them. Enter flashing mode and write the image yourself.
-
 ---
 
 ## Usage
@@ -167,8 +163,10 @@ Firmware can come from three places:
 2. **A local file** — a `.uf2` or `.bin` you already have.
 3. **An https URL** — paste a link yourself.
 
-Once loaded the app identifies the format (UF2 / ESP image / ZIP / gzip / a web
-page fetched by mistake) and shows the size and target chip.
+Once loaded the app identifies the file type and shows its size; the target chip
+is reported only when it is actually a **UF2** or **ESP image**. If it turns out
+to be a ZIP, a gzip or a web page, the app says so plainly — that means you do
+not have the firmware itself.
 
 The firmware is open source; this app only lists what upstream already publishes.
 It does not redistribute, mirror or modify those files.
