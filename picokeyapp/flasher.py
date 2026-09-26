@@ -1,0 +1,391 @@
+"""
+Firmware flashing straight from the phone, over the Android USB host API.
+
+Two boards, two completely unrelated mechanisms
+-----------------------------------------------
+RP2040 / RP2350
+    BOOTSEL makes the Boot ROM expose the flash as a USB mass-storage device
+    (USB class 8). You "flash" by copying a .uf2 file onto it; the ROM does the
+    rest. There is no serial protocol to speak.
+
+    Writing a file into that FAT filesystem from scratch would mean shipping a
+    FAT12/16/32 writer - a lot of code with a lot of ways to corrupt a volume.
+    Instead we hand the file to the system file manager through the Storage
+    Access Framework, which already knows how to do this correctly.
+
+ESP32-S2 / ESP32-S3
+    These have no UF2 bootloader and no mass-storage mode. They boot a ROM
+    serial loader that speaks esptool's SLIP-framed binary protocol over
+    USB Serial/JTAG (a CDC ACM interface, USB class 10). This module
+    implements that protocol directly, so no external tool is needed.
+
+Provenance / testing status
+---------------------------
+The SLIP framing, command opcodes and packet layout follow the ROM serial
+protocol, and the UF2 block layout is validated against the published magic
+numbers. None of it has been exercised against real silicon - see the README.
+Flashing is therefore treated as a destructive, opt-in action in the UI.
+"""
+
+from __future__ import annotations
+
+import struct
+
+from . import usbhost
+from .i18n import t
+
+# ---------------------------------------------------------------------------
+# Firmware image sniffing
+# ---------------------------------------------------------------------------
+
+UF2_MAGIC_START0 = 0x0A324655      # "UF2\n"
+UF2_MAGIC_START1 = 0x9E5D5157
+UF2_MAGIC_END = 0x0AB16F30
+UF2_BLOCK = 512
+
+_ESP_IMAGE_MAGIC = 0xE9            # first byte of an ESP8266/ESP32 image
+_ESP_CHIP_IDS = {0x09: "ESP32-S3"}
+
+
+class FirmwareError(Exception):
+    pass
+
+
+def sniff(data: bytes) -> dict:
+    """Identify a firmware blob. Never raises; 'unknown' is a valid answer."""
+    if not data:
+        return {"kind": "empty", "detail": t("fw_empty", default="empty file")}
+
+    if len(data) >= 8:
+        m0, m1 = struct.unpack_from("<II", data, 0)
+        if m0 == UF2_MAGIC_START0 and m1 == UF2_MAGIC_START1:
+            blocks = _uf2_block_count(data)
+            return {"kind": "uf2", "blocks": blocks,
+                    "detail": t("fw_uf2", n=blocks, default=f"UF2, {blocks} blocks")}
+
+    if data[0] == _ESP_IMAGE_MAGIC and len(data) >= 4:
+        # Byte 1 of a real image is the segment count (0..16); anything else
+        # means the 0xE9 was a coincidence.
+        segments = data[1]
+        chip = _ESP_CHIP_IDS.get(data[3]) if len(data) > 3 else None
+        if segments <= 16:
+            return {"kind": "esp", "segments": segments, "chip": chip,
+                    "detail": t("fw_esp", n=segments,
+                                default=f"ESP image, {segments} segments")}
+
+    if data[:2] == b"PK":
+        return {"kind": "zip", "detail": t("fw_zip", default="ZIP archive - extract first")}
+    if data[:2] == b"\x1f\x8b":
+        return {"kind": "gzip", "detail": t("fw_gzip", default="gzip - decompress first")}
+    if data[:6] in (b"<!DOCT", b"<html>", b"<?xml "):
+        return {"kind": "html", "detail": t("fw_html", default="this is a web page, not firmware")}
+
+    return {"kind": "unknown", "detail": t("fw_unknown", default="unrecognised format")}
+
+
+def uf2_is_valid(data: bytes) -> bool:
+    """True if every 512-byte block of this UF2 starts and ends correctly."""
+    if len(data) < UF2_BLOCK or len(data) % UF2_BLOCK:
+        return False
+    for off in range(0, len(data), UF2_BLOCK):
+        blk = data[off:off + UF2_BLOCK]
+        m0, m1 = struct.unpack_from("<II", blk, 0)
+        end, = struct.unpack_from("<I", blk, UF2_BLOCK - 4)
+        if m0 != UF2_MAGIC_START0 or m1 != UF2_MAGIC_START1 or end != UF2_MAGIC_END:
+            return False
+    return True
+
+
+def _uf2_block_count(data: bytes) -> int:
+    if len(data) < UF2_BLOCK:
+        return 0
+    return len(data) // UF2_BLOCK
+
+
+def uf2_target_family(data: bytes) -> str:
+    """Which chip family a UF2 is built for, from the block flags."""
+    if len(data) < UF2_BLOCK:
+        return "unknown"
+    flags, = struct.unpack_from("<I", data, 8)
+    # bit 0 = "not main flash"; family IDs live in the upper bits
+    fam = (flags >> 24) & 0xFF
+    return {0x00: "unknown", 0x0A: "RP2040", 0x21: "RP2350"}.get(fam, hex(fam))
+
+
+# ---------------------------------------------------------------------------
+# Bootloader device detection
+# ---------------------------------------------------------------------------
+
+USB_CLASS_MASS_STORAGE = 0x08
+USB_CLASS_CDC_DATA = 0x0A
+
+
+def classify_bootloader(device) -> str | None:
+    """Return 'uf2', 'esp32' or None for a device that is in bootloader mode.
+
+    Detection is deliberately based on interface class, not VID/PID: boards in
+    ROM mode show the silicon vendor's ID, and clone boards vary wildly.
+    """
+    try:
+        if device.interfaces_of_class(USB_CLASS_MASS_STORAGE):
+            return "uf2"
+        if device.interfaces_of_class(USB_CLASS_CDC_DATA):
+            return "esp32"
+    except Exception:
+        return None
+    return None
+
+
+# ---------------------------------------------------------------------------
+# ESP32: SLIP framing + ROM serial loader
+# ---------------------------------------------------------------------------
+
+SLIP_END = 0xC0
+SLIP_ESC = 0xDB
+SLIP_ESC_END = 0xDC
+SLIP_ESC_ESC = 0xDD
+
+# ROM command opcodes
+OP_FLASH_BEGIN = 0x02
+OP_FLASH_DATA = 0x03
+OP_FLASH_END = 0x04
+OP_MEM_BEGIN = 0x05
+OP_MEM_END = 0x06
+OP_MEM_DATA = 0x07
+OP_SYNC = 0x08
+OP_READ_REG = 0x09
+OP_WRITE_REG = 0x0A
+OP_SPI_ATTACH = 0x0D
+OP_CHANGE_BAUDRATE = 0x0F
+OP_SPI_FLASH_MD5 = 0x13
+
+CHECKSUM_MAGIC = 0xEF
+
+
+def slip_encode(data: bytes) -> bytes:
+    out = bytearray([SLIP_END])
+    for b in data:
+        if b == SLIP_END:
+            out += bytes([SLIP_ESC, SLIP_ESC_END])
+        elif b == SLIP_ESC:
+            out += bytes([SLIP_ESC, SLIP_ESC_ESC])
+        else:
+            out.append(b)
+    out.append(SLIP_END)
+    return bytes(out)
+
+
+def slip_decode(buf: bytearray):
+    """Pull the first complete SLIP frame out of `buf`.
+
+    Returns (payload, consumed_bytes) or (None, 0) when the frame is
+    incomplete. Leading garbage before the first 0xC0 is dropped rather than
+    treated as an error, because a freshly opened port can hold stale bytes.
+    """
+    start = buf.find(bytes([SLIP_END]))
+    if start < 0:
+        return None, 0
+    i = start + 1
+    out = bytearray()
+    while i < len(buf):
+        b = buf[i]
+        if b == SLIP_END:
+            return bytes(out), i + 1
+        if b == SLIP_ESC:
+            if i + 1 >= len(buf):
+                return None, 0
+            nxt = buf[i + 1]
+            # Put back the ORIGINAL byte, not the escape token: 0xDB 0xDC
+            # means 0xC0 and 0xDB 0xDD means 0xDB. Appending the token itself
+            # silently corrupts every escaped byte in the frame.
+            if nxt == SLIP_ESC_END:
+                out.append(SLIP_END)
+            elif nxt == SLIP_ESC_ESC:
+                out.append(SLIP_ESC)
+            else:
+                out.append(nxt)
+            i += 2
+            continue
+        out.append(b)
+        i += 1
+    return None, 0
+
+
+def rom_checksum(data: bytes, state: int = CHECKSUM_MAGIC) -> int:
+    """The XOR-of-dwords checksum the ROM loader expects."""
+    MASK = 0x3FFFFFFF
+    state &= MASK
+    full = len(data) - (len(data) % 4)
+    for i in range(0, full, 4):
+        (word,) = struct.unpack_from("<I", data, i)
+        state ^= word & MASK
+    tail = data[full:]
+    if tail:
+        (word,) = struct.unpack("<I", tail.ljust(4, b"\x00"))
+        state ^= word & MASK
+    return state
+
+
+class EspLoader:
+    """esptool ROM serial loader over an Android CDC-ACM bulk interface."""
+
+    def __init__(self, connection, timeout: int = 3000):
+        self.conn = connection
+        self.timeout = timeout
+        self._buf = bytearray()
+
+    # ------------------------------------------------------------ raw I/O
+
+    def _write(self, data: bytes):
+        # USB Serial/JTAG has no baud rate to configure, and the bulk endpoint
+        # is 64 bytes, so long frames must be split or the transfer stalls.
+        ep_size = 64
+        for i in range(0, len(data), ep_size):
+            self.conn.write(data[i:i + ep_size], timeout=self.timeout)
+
+    def _read_frame(self, timeout: int = None) -> bytes:
+        """Read one SLIP frame, buffering whatever the endpoint returns."""
+        timeout = timeout or self.timeout
+        deadline = _now() + timeout / 1000.0
+        while True:
+            payload, used = slip_decode(self._buf)
+            if payload is not None:
+                del self._buf[:used]
+                return payload
+            chunk = self.conn.read(64, timeout=max(200, int((deadline - _now()) * 1000)))
+            if chunk:
+                self._buf += chunk
+            if _now() > deadline:
+                raise FirmwareError(t("fw_esp_timeout", default="no response from the bootloader"))
+
+    # ------------------------------------------------------------ commands
+
+    def sync(self, attempts: int = 5) -> bool:
+        """Send SYNC until the ROM answers or we run out of attempts."""
+        payload = struct.pack("<I", 0) + b"\x07\x07\x12\x20" + b"\x55" * 32
+        for _ in range(attempts):
+            try:
+                self._write(slip_encode(self._packet(OP_SYNC, payload)))
+                resp = self._read_frame(timeout=500)
+                if resp and resp[0] == 0x01:       # direction: response
+                    return True
+            except Exception:
+                continue
+        return False
+
+    def command(self, op: int, data: bytes = b"", checksum: int = 0,
+                timeout: int = None) -> tuple:
+        """Send one command and return (value, body)."""
+        self._write(slip_encode(self._packet(op, data, checksum)))
+        resp = self._read_frame(timeout=timeout)
+        if len(resp) < 8:
+            raise FirmwareError(t("fw_esp_short", default="truncated response"))
+        direction, r_op = resp[0], resp[1]
+        size = struct.unpack_from("<H", resp, 2)[0]
+        (value,) = struct.unpack_from("<I", resp, 4)
+        if direction != 0x01 or r_op != op:
+            raise FirmwareError(t("fw_esp_mismatch", default="unexpected response"))
+        body = resp[8:8 + size]
+        status = resp[8 + size] if len(resp) > 8 + size else 0
+        if status:
+            raise FirmwareError(t("fw_esp_status", code=status,
+                                  default=f"bootloader returned status {status}"))
+        return value, body
+
+    @staticmethod
+    def _packet(op: int, data: bytes, checksum: int = None) -> bytes:
+        if checksum is None:
+            checksum = rom_checksum(data)
+        return struct.pack("<BBHI", 0x00, op, len(data), checksum) + data
+
+    # ------------------------------------------------------------ flashing
+
+    def flash(self, image: bytes, offset: int = 0,
+              progress=None, block_size: int = 0x4000) -> None:
+        """Write a raw ESP image to flash using the ROM's own commands.
+
+        No flasher stub is uploaded: the ROM's FLASH_BEGIN/DATA/END commands
+        are enough for a plain write, which keeps this independent of any
+        binary blob we would otherwise have to ship.
+        """
+        total = len(image)
+        blocks = (total + block_size - 1) // block_size
+
+        # Attach to the SPI flash before touching it.
+        try:
+            self.command(OP_SPI_ATTACH, struct.pack("<I", 0), timeout=4000)
+        except FirmwareError:
+            # Some ROMs answer with a non-zero status here but are still ready.
+            pass
+
+        self.command(OP_FLASH_BEGIN,
+                     struct.pack("<IIII", total, blocks, block_size, offset),
+                     timeout=20000)
+
+        seq = 0
+        for i in range(blocks):
+            chunk = image[i * block_size:(i + 1) * block_size]
+            padded = chunk + b"\xff" * (block_size - len(chunk))
+            self.command(OP_FLASH_DATA,
+                         struct.pack("<II", len(padded), seq) + padded,
+                         timeout=8000)
+            seq += 1
+            if progress:
+                progress(i + 1, blocks)
+
+        self.command(OP_FLASH_END, struct.pack("<I", 1), timeout=4000)
+
+
+def _now():
+    import time
+    return time.time()
+
+
+# ---------------------------------------------------------------------------
+# High level entry point
+# ---------------------------------------------------------------------------
+
+def flash_esp32(device, image: bytes, progress=None):
+    """Open the CDC data interface of an ESP32 in download mode and flash it."""
+    intfs = device.interfaces_of_class(USB_CLASS_CDC_DATA)
+    if not intfs:
+        raise FirmwareError(t("fw_no_cdc", default="no serial interface found"))
+    conn = usbhost.Connection(device, intfs[0], force=True)
+    try:
+        loader = EspLoader(conn)
+        if not loader.sync():
+            raise FirmwareError(t("fw_esp_nosync",
+                                  default="bootloader did not answer - is the board in download mode?"))
+        loader.flash(image, progress=progress)
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def save_via_saf(filename: str, mime: str = "application/octet-stream") -> bool:
+    """Hand a UF2 to the system file manager so the user can drop it on the
+    RPI-RP2 / RP2350 drive.
+
+    Returns True if the picker was launched. This is the RP2040/RP2350 path:
+    the mass-storage Boot ROM does the real work once the file lands.
+    """
+    try:
+        from jnius import autoclass
+        from android import activity
+
+        Intent = autoclass("android.content.Intent")
+        act = activity._activity if hasattr(activity, "_activity") else None
+        if act is None:
+            act = autoclass("org.kivy.android.PythonActivity").mActivity
+
+        intent = Intent(Intent.ACTION_CREATE_DOCUMENT)
+        intent.addCategory(Intent.CATEGORY_OPENABLE)
+        intent.setType(mime)
+        intent.putExtra(Intent.EXTRA_TITLE, filename)
+        act.startActivity(intent)
+        return True
+    except Exception as exc:
+        raise FirmwareError(t("fw_saf_failed", err=str(exc),
+                              default=f"could not open the file picker: {exc}"))

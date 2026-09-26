@@ -227,11 +227,67 @@ STRINGS.update({
     "diag_preload_title": {"zh": "Java 类预加载", "en": "Java class preload"},
     "diag_preload_ok": {"zh": "全部就绪（可在子线程使用 USB）", "en": "All ready (USB usable from worker threads)"},
     "diag_preload_missing": {"zh": "缺失：{names}", "en": "Missing: {names}"},
+
+    # ------------------------------------------------------------ firmware
+    "btn_firmware": {"zh": "固件刷写", "en": "Flash firmware"},
+    "sec_firmware": {"zh": "固件刷写", "en": "Firmware"},
+    "fw_intro": {
+        "zh": "给板子刷固件。RP2040/RP2350 用 UF2（进 BOOTSEL 后交给文件管理器），ESP32 走串口下载协议。",
+        "en": "Flash firmware onto the board. RP2040/RP2350 take UF2 (hand it to the file manager after BOOTSEL); ESP32 uses the serial download protocol.",
+    },
+    "fw_pick_file": {"zh": "选择固件文件", "en": "Pick firmware file"},
+    "fw_from_url": {"zh": "从 URL 下载", "en": "Download from URL"},
+    "fw_url_hint": {"zh": "固件 URL（https://...）", "en": "Firmware URL (https://...)"},
+    "fw_no_file": {"zh": "未选择文件", "en": "No file chosen"},
+    "fw_kind": {"zh": "识别结果", "en": "Detected"},
+    "fw_size": {"zh": "大小", "en": "Size"},
+    "fw_target": {"zh": "适用芯片", "en": "Target chip"},
+    "fw_empty": {"zh": "空文件", "en": "empty file"},
+    "fw_uf2": {"zh": "UF2，{n} 个块", "en": "UF2, {n} blocks"},
+    "fw_esp": {"zh": "ESP 镜像，{n} 个段", "en": "ESP image, {n} segments"},
+    "fw_zip": {"zh": "ZIP 压缩包，请先解压", "en": "ZIP archive - extract it first"},
+    "fw_gzip": {"zh": "gzip 压缩，请先解压", "en": "gzip - decompress first"},
+    "fw_html": {"zh": "这是网页不是固件，可能下载到了错误地址", "en": "this is a web page - probably the wrong URL"},
+    "fw_unknown": {"zh": "无法识别的格式", "en": "unrecognised format"},
+    "fw_family_rp2040": {"zh": "RP2040", "en": "RP2040"},
+    "fw_family_rp2350": {"zh": "RP2350", "en": "RP2350"},
+    "fw_flash_esp": {"zh": "刷入 ESP32（会覆盖现有固件）", "en": "Flash ESP32 (overwrites current firmware)"},
+    "fw_save_uf2": {"zh": "交给文件管理器保存（RP2040/RP2350）", "en": "Save via file manager (RP2040/RP2350)"},
+    "fw_scan_bootloader": {"zh": "扫描处于下载模式的设备", "en": "Scan for a device in download mode"},
+    "fw_howto_esp": {
+        "zh": "按住 BOOT 键插上板子，让它进入下载模式，再点“扫描处于下载模式的设备”。",
+        "en": "Hold BOOT while plugging the board in to enter download mode, then scan.",
+    },
+    "fw_howto_uf2": {
+        "zh": "按住 BOOTSEL 插上板子，手机会多出一个 U 盘（RPI-RP2 / RP2350），把 UF2 存进去即可自动刷写。",
+        "en": "Hold BOOTSEL while plugging in; the phone shows a drive (RPI-RP2 / RP2350). Save the UF2 there and it flashes automatically.",
+    },
+    "fw_confirm_body": {
+        "zh": "刷写会覆盖板子上的现有固件和所有已存数据。如果这是板上唯一的密钥，先确认别处有备份。确定继续吗？",
+        "en": "Flashing overwrites the current firmware and everything stored on the board. If this is your only key, make sure a backup exists elsewhere. Continue?",
+    },
+    "fw_confirm_title": {"zh": "确认刷写？", "en": "Flash now?"},
+    "fw_working": {"zh": "刷写中… {n}%", "en": "Flashing… {n}%"},
+    "fw_done": {"zh": "刷写完成，请拔插板子。", "en": "Flashing finished - unplug and reconnect the board."},
+    "fw_no_cdc": {"zh": "没找到串口接口", "en": "no serial interface found"},
+    "fw_esp_nosync": {"zh": "bootloader 没有响应，板子在下载模式吗？", "en": "bootloader did not answer - is the board in download mode?"},
+    "fw_esp_timeout": {"zh": "bootloader 超时未响应", "en": "no response from the bootloader"},
+    "fw_esp_short": {"zh": "响应被截断", "en": "truncated response"},
+    "fw_esp_mismatch": {"zh": "响应不匹配", "en": "unexpected response"},
+    "fw_esp_status": {"zh": "bootloader 返回状态 {code}", "en": "bootloader returned status {code}"},
+    "fw_saf_failed": {"zh": "打不开文件管理器：{err}", "en": "could not open the file manager: {err}"},
+    "fw_no_bootloader": {"zh": "没找到处于下载模式的设备", "en": "no device in download mode found"},
+    "fw_found_bootloader": {"zh": "找到 {kind} 设备：{name}", "en": "found {kind} device: {name}"},
+    "fw_kind_uf2": {"zh": "UF2（RP2040/RP2350）", "en": "UF2 (RP2040/RP2350)"},
+    "fw_kind_esp32": {"zh": "ESP32 串口下载", "en": "ESP32 serial download"},
+    "fw_warn_unverified": {
+        "zh": "注意：这条刷写路径没有在真机上验证过。ESP32 失败可以重来（ROM 下载模式能救），但请先看日志确认每一步。",
+        "en": "Note: this flashing path has not been verified on real hardware. An ESP32 failure is recoverable (the ROM download mode can rescue it), but read the log for each step.",
+    },
+
+    # ------------------------------------------------------------ diagnostics
+    "diag_inset": {"zh": "状态栏高度 {value}dp，已为顶部留出空间", "en": "status bar is {value}dp, top inset applied"},
 })
-
-
-def get_lang() -> str:
-    return _current
 
 
 def set_lang(code: str) -> str:
@@ -241,12 +297,21 @@ def set_lang(code: str) -> str:
     return _current
 
 
-def t(key: str, **kwargs) -> str:
-    """Translate `key` into the current language, then format it."""
+def get_lang() -> str:
+    return _current
+
+
+def t(key: str, default: str = None, **kwargs) -> str:
+    """Translate `key` into the current language, then format it.
+
+    `default` is used when the key is missing from STRINGS, so a module can
+    carry its own English fallback instead of leaking the raw key to the user.
+    """
     entry = STRINGS.get(key)
     if entry is None:
-        return key
-    text = entry.get(_current) or entry.get(DEFAULT_LANG) or key
+        text = default if default is not None else key
+    else:
+        text = entry.get(_current) or entry.get(DEFAULT_LANG) or key
     try:
         return text.format(**kwargs) if kwargs else text
     except Exception:

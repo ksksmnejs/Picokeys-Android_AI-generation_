@@ -98,6 +98,35 @@ def usb_manager():
     return manager
 
 
+def status_bar_height_dp() -> float:
+    """Height of the Android status bar, in Kivy dp.
+
+    Kivy draws from y=0 of the window, so on a notch/punch-hole phone the top
+    row of widgets ends up underneath the status bar icons. Reading the
+    framework dimension is the reliable way to get the real inset - hardcoding
+    a value breaks on the many OEMs that draw a taller bar.
+
+    Returns 0 on desktop or if the lookup fails; the caller just adds it.
+    """
+    if not is_android():
+        return 0.0
+    try:
+        act = activity()
+        res = act.getResources()
+        res_id = res.getIdentifier("status_bar_height", "dimen", "android")
+        if res_id <= 0:
+            return 0.0
+        px = res.getDimensionPixelSize(res_id)
+        density = res.getDisplayMetrics().density
+        if not density:
+            return 0.0
+        # Kivy dp is defined against a 160dpi baseline, same as Android dp.
+        return float(px) / float(density)
+    except Exception:
+        # A missing/renamed dimension is not worth crashing the UI over.
+        return 0.0
+
+
 # Every Java class this module can possibly touch. Resolving them once, on the
 # Android UI thread, is what makes the rest of the module usable from Python
 # worker threads - see preload_java_classes().
