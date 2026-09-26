@@ -35,6 +35,142 @@ from . import usbhost
 from .i18n import t
 
 # ---------------------------------------------------------------------------
+# Official firmware lookup (GitHub releases)
+# ---------------------------------------------------------------------------
+#
+# The firmware is open source and published as release assets, so the app can
+# list and download them straight from GitHub instead of making people hunt for
+# a file with a browser. Read-only and unauthenticated: the releases API is
+# public, so no token is needed (which also keeps us clear of the 60 req/hour
+# unauthenticated limit being a hard blocker for a handful of manual taps).
+
+GITHUB_API = "https://api.github.com"
+
+# Repo per firmware family. Only the FIDO one is offered by default because
+# that is what most boards run, but the others are a tap away.
+FIRMWARE_REPOS = {
+    "fido": "polhenarejos/pico-fido",
+    "hsm": "polhenarejos/pico-hsm",
+    "openpgp": "polhenarejos/pico-openpgp",
+}
+
+# Filenames look like:
+#   pico_fido_pico-8.0.uf2        (RP2040)
+#   pico_fido_pico2-8.0.uf2       (RP2350)
+#   pico_fido_esp32-s2_8.0.bin    (ESP32-S2)
+#   pico_fido_esp32-s3_8.0.bin    (ESP32-S3)
+# Match longest first so "pico2" is not swallowed by the "pico" rule.
+_BOARD_PATTERNS = [
+    ("esp32-s3", "ESP32-S3"),
+    ("esp32-s2", "ESP32-S2"),
+    ("pico2", "RP2350"),
+    ("rp2350", "RP2350"),
+    ("pico", "RP2040"),
+    ("rp2040", "RP2040"),
+]
+
+
+def board_from_filename(name: str) -> str | None:
+    """Infer the target board from a release asset filename."""
+    low = (name or "").lower()
+    for token, label in _BOARD_PATTERNS:
+        if token in low:
+            return label
+    return None
+
+
+def _is_firmware_asset(name: str) -> bool:
+    """Reject source archives, checksums and anything else that is not an image."""
+    low = (name or "").lower()
+    if not low.endswith((".uf2", ".bin")):
+        return False
+    return board_from_filename(low) is not None
+
+
+def _get_json(url: str, timeout: int = 30):
+    from urllib.request import urlopen, Request
+    req = Request(url, headers={
+        "User-Agent": "PicoKeyManager",
+        "Accept": "application/vnd.github+json",
+    })
+    with urlopen(req, timeout=timeout) as resp:
+        import json
+        return json.loads(resp.read().decode("utf-8", "replace"))
+
+
+def github_releases(repo: str, timeout: int = 30) -> list:
+    """Return releases, newest stable first, nightlies and drafts last.
+
+    `/releases/latest` would be simpler but returns 404 for repos whose newest
+    release is a pre-release, which is exactly the situation upstream is in
+    (a `nightly-main` build sits on top). Listing all of them and sorting here
+    is robust to that.
+    """
+    data = _get_json(f"{GITHUB_API}/repos/{repo}/releases?per_page=10", timeout)
+    if not isinstance(data, list):
+        return []
+
+    # Newest first by publish date...
+    by_date = sorted(data, key=lambda r: r.get("published_at") or "", reverse=True)
+
+    # ...then a stable pass that pushes nightlies and drafts to the back while
+    # preserving that date order. Doing it as two passes matters: a single sort
+    # on (pre, date) would put an old stable release ahead of a newer one,
+    # because the date comparison has to be descending while the
+    # stable-first comparison has to be ascending.
+    def unstable(rel):
+        return 1 if (rel.get("prerelease") or rel.get("draft")) else 0
+
+    return sorted(by_date, key=unstable)
+
+
+def list_official_firmware(family: str = "fido", timeout: int = 30) -> list:
+    """List downloadable firmware images for a family.
+
+    Returns dicts with: name, board, size, url, tag, prerelease.
+    The newest image per board is enough - older ones for the same board would
+    just be noise in the picker.
+    """
+    repo = FIRMWARE_REPOS.get(family)
+    if not repo:
+        raise FirmwareError(f"unknown firmware family: {family}")
+
+    out = []
+    seen = set()
+    for rel in github_releases(repo, timeout):
+        tag = rel.get("tag_name") or ""
+        pre = bool(rel.get("prerelease"))
+        for asset in rel.get("assets") or []:
+            name = asset.get("name") or ""
+            if not _is_firmware_asset(name):
+                continue
+            board = board_from_filename(name) or "?"
+            if board in seen:
+                continue
+            seen.add(board)
+            out.append({
+                "name": name,
+                "board": board,
+                "size": int(asset.get("size") or 0),
+                "url": asset.get("browser_download_url") or "",
+                "tag": tag,
+                "prerelease": pre,
+                "repo": repo,
+            })
+    return out
+
+
+def download_firmware(url: str, timeout: int = 120) -> bytes:
+    """Fetch one asset. Follows redirects - release assets live on objects.githubusercontent.com."""
+    from urllib.request import urlopen, Request
+    if not url.startswith("https://"):
+        raise FirmwareError("refusing a non-HTTPS firmware URL")
+    req = Request(url, headers={"User-Agent": "PicoKeyManager"})
+    with urlopen(req, timeout=timeout) as resp:
+        return resp.read()
+
+
+# ---------------------------------------------------------------------------
 # Firmware image sniffing
 # ---------------------------------------------------------------------------
 
