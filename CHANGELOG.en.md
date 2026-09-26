@@ -17,6 +17,26 @@ workflow matches it against `version` in `buildozer.spec`.
 - something
 ```
 
+This file is the **single source of truth for the version number and the release
+notes**. To publish:
+
+1. Add a section for the new version here (and in `CHANGELOG.en.md`).
+2. Actions → **Build Android APK** → Run workflow, leave the rest at defaults.
+
+The workflow then: reads the version from this file → writes it into
+`buildozer.spec` → derives the release tag → extracts this version's section as
+the Releases page body → commits the bump back after a successful build.
+
+Optional inputs when running the workflow:
+
+| Input | Meaning |
+| --- | --- |
+| `bump` | `auto` (default, newest version here) / `patch` / `minor` / `major` / `none` |
+| `overwrite` | Off by default. If the tag exists the workflow **fails with a message** so old versions survive; tick it to replace in place |
+| `draft` / `prerelease` | Publish as a draft / mark as pre-release |
+
+If the build fails the job stops early and no version number is consumed.
+
 ---
 
 ## [v0.2.0] - 2026-09-26

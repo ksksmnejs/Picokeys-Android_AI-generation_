@@ -16,6 +16,24 @@
 - 某某问题
 ```
 
+本文件是**版本号与发布说明的唯一来源**。发布流程：
+
+1. 在这里（和 `CHANGELOG.en.md`）加一个新版本的段落，写明改了什么。
+2. Actions → **Build Android APK** → Run workflow，其余保持默认。
+
+工作流会：从本文件取出版本号 → 写进 `buildozer.spec` → 用它生成 release tag →
+从本文件抽取该版本段落作为 Releases 页面的正文 → 成功后把版本号提交回仓库。
+
+Run workflow 时的可选开关：
+
+| 选项 | 说明 |
+| --- | --- |
+| `bump` | `auto`（默认，取本文件最新版本号）/ `patch` / `minor` / `major` / `none` |
+| `overwrite` | 默认关闭。同名 tag 已存在时工作流会**失败并提示**，以保住历史版本；勾上则原地替换 |
+| `draft` / `prerelease` | 发布为草稿 / 预发布 |
+
+构建失败时 job 提前终止，不会消耗版本号。
+
 ---
 
 ## [v0.2.0] - 2026-09-26
