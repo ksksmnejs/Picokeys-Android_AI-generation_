@@ -106,6 +106,7 @@
   <div id="devInfo" class="hidden"></div>
   <div id="devStatus"></div>
   <div class="sub" data-i18n="hintConnect" style="margin-top:8px"></div>
+  <div class="sub" data-i18n="reconnectTip"></div>
 </div>
 
 <!-- ============ 读 ============ -->
@@ -219,6 +220,12 @@
   </div>
 </div>
 
+<details class="card" id="changelogCard">
+  <summary data-i18n="secChangelog">更新日志</summary>
+  <div class="sub" data-i18n="changelogTitle" style="margin-top:6px"></div>
+  <pre data-i18n="changelogText" style="white-space:pre-wrap;word-break:break-word;margin:8px 0 0;font:inherit;font-size:12px;line-height:1.65"></pre>
+</details>
+
 <div class="tail">
   <span data-i18n="tail1">协议移植自 pypicokey (AGPL-3.0) · 本页为独立实现</span><br>
   <span data-i18n="tail2">需要 HTTPS + Chrome/Edge · 桌面端可能被系统 CCID 驱动抢占</span>
@@ -319,6 +326,17 @@ const I18N = {
     mTimeoutTitle:"设备没有响应",
     mTimeoutBody:"发出了指令但设备在 2.5 秒内没有回任何数据。通常意味着：\n\n1. 选中的接口不是 PicoKey 的 CCID 接口（比如选成了 ESP32 的下载接口）\n2. 板子卡在下载模式 —— 拔掉重新插，别按 BOOT\n3. 设备正忙或已断开\n\n按钮现在都可用了，可以点「诊断接口」看看设备到底暴露了什么，或「重新读取全部」再试一次。",
     curVid:"当前 VID/PID", curProduct:"当前产品名",
+
+    /* --- 找不到设备：选择器为空时的排查指引 --- */
+    mNoDevTitle:"没找到设备",
+    mNoDevBody:"选择器里一个设备都没有。这通常不是页面的问题，而是设备当前呈现的 USB 形态不被浏览器接管。\n\n按这个顺序排查：\n\n1. 板子必须正在运行 PicoKey 固件。如果它停在刷机/下载模式，就会变成 U 盘（RP2040/RP2350）或 JTAG 串口（ESP32）—— 浏览器一律不接管这两类接口，设备会被直接隐藏。做法是：拔掉、什么都不按、重新插。\n\n2. 换一根确认能传数据的线，纯充电线不行。\n\n3. 确认没有被其它 App 占用（手机上的串口助手、文件管理器都可能抢）。\n\n4. 桌面端还要注意：Chrome 会隐藏被系统驱动接管的设备（U 盘、摄像头、串口、HID 键鼠等）。\n\n如果以上都确认过还是空的，多半是这颗芯片在固件下没有暴露可接管的接口 —— 换用安卓 App 或桌面工具试试。",
+    reused:"已复用上次授权的设备（跳过选择器）",
+    reconnectTip:"若选择器一直为空，先拔插设备再点一次。",
+
+    /* --- 页面内更新日志 --- */
+    secChangelog:"更新日志",
+    changelogTitle:"本页的更新记录",
+    changelogText:"2026-09-26\n· 选择设备失败时（选择器为空）会弹出排查指引，不再只显示“已取消”\n· 启动时自动复用上次已授权的设备，不必每次都走选择器\n· 页面内新增本更新日志\n· 文案中的按键手势改为“上电时不要按住任何按键”，因为不同板子进入刷机模式的方式不同\n\n更早\n· 从 pypicokey 移植 CCID/CTAP 协议，实现 PHY 读写、安全启动、重启等\n· 增加中英双语切换",
   },
   en: {
     title:"PicoKey Commissioner", subtitle:"Configure Pico FIDO over WebUSB · no app · no compiling",
@@ -396,6 +414,17 @@ const I18N = {
     mTimeoutTitle:"Device did not respond",
     mTimeoutBody:"A command was sent but nothing came back within 2.5 s. Usually that means:\n\n1. The interface you picked is not PicoKey's CCID interface (e.g. the ESP32 download interface)\n2. The board is stuck in download mode - unplug and replug without holding BOOT\n3. The device is busy or has gone away\n\nAll buttons are usable now: tap \"Diagnose\" to see what the device actually exposes, or \"Re-read all\" to try again.",
     curVid:"Current VID/PID", curProduct:"Current product name",
+
+    /* --- device not found: guidance shown when the chooser comes up empty --- */
+    mNoDevTitle:"No device found",
+    mNoDevBody:"The chooser came up empty. That is usually not a problem with this page — the device is presenting itself in a USB form the browser will not take over.\n\nWork through these in order:\n\n1. The board must be RUNNING the PicoKey firmware. If it is stuck in flashing/download mode it shows up as a USB drive (RP2040/RP2350) or a JTAG serial port (ESP32) — the browser refuses to claim both, so the device is hidden outright. Fix: unplug, press nothing, plug back in.\n\n2. Use a cable you know carries data; charge-only cables do not work.\n\n3. Make sure no other app holds it (serial terminals, file managers).\n\n4. On desktop, Chrome also hides devices already claimed by a system driver (USB drives, cameras, serial ports, HID keyboards/mice).\n\nIf all of that checks out and it is still empty, the chip probably exposes no claimable interface under this firmware — try the Android app or a desktop tool instead.",
+    reused:"Reusing the previously authorised device (chooser skipped)",
+    reconnectTip:"If the chooser keeps coming up empty, unplug and replug, then tap again.",
+
+    /* --- in-page changelog --- */
+    secChangelog:"Changelog",
+    changelogTitle:"Changes to this page",
+    changelogText:"2026-09-26\n· When no device appears, the page now explains why instead of just saying \"cancelled\"\n· Previously authorised devices are reused on load, so you do not re-pick every time\n· Added this in-page changelog\n· Button gestures in the text are now \"hold no buttons while powering up\" — entering flashing mode differs per board\n\nEarlier\n· Ported the CCID/CTAP protocol from pypicokey: PHY read/write, secure boot, reboot\n· Added the Chinese / English switch",
   }
 };
 
@@ -540,13 +569,39 @@ function intOr(v, fallback){
 async function connect(){
   if (!navigator.usb){ log(t('noWebUSB'),'err'); return; }
   if (!window.isSecureContext){ log(t('notSecure'),'err'); return; }
-  log(t('selecting'),'dim');
+  // Already authorised? Skip the chooser entirely. requestDevice() is the only
+  // call that can come up empty, and re-picking a device the user already
+  // granted is pure friction - especially since Android drops the grant on
+  // every unplug, so the common case really is a fresh pick.
+  let picked = null;
   try {
-    // No filters: let the user pick anything, so unknown VID/PIDs still work.
-    device = await navigator.usb.requestDevice({ filters: [] });
-  } catch(e){
-    log(t('cancelled') + ' (' + e.name + ')','warn'); return;
+    const known = await navigator.usb.getDevices();
+    if (known && known.length){
+      picked = known[0];
+      log(t('reused'), 'ok');
+    }
+  } catch(e){ /* optional; fall through to the picker */ }
+
+  if (!picked){
+    log(t('selecting'),'dim');
+    try {
+      // No filters: let the user pick anything, so unknown VID/PIDs still work.
+      // An empty filter lists every device the browser is willing to claim, so
+      // an empty chooser means "nothing claimable", not "wrong filter".
+      picked = await navigator.usb.requestDevice({ filters: [] });
+    } catch(e){
+      const name = (e && e.name) || '';
+      if (name === 'NotFoundError'){
+        // The chooser came up empty. Reporting "cancelled" here is both wrong
+        // and useless: the user needs to know why nothing was listed at all.
+        log(t('mNoDevTitle'), 'err');
+        showModal('mNoDevTitle','mNoDevBody','err');
+        return;
+      }
+      log(t('cancelled') + ' (' + name + ')','warn'); return;
+    }
   }
+  device = picked;
   log(t('connected') + ': ' + device.manufacturerName + ' / ' + device.productName +
       '  [0x' + device.vendorId.toString(16).padStart(4,'0') + ':0x' +
       device.productId.toString(16).padStart(4,'0') + ']', 'ok');
