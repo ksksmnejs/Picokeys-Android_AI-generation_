@@ -22,6 +22,10 @@ on:
         description: 'Mark the release as a pre-release'
         type: boolean
         default: false
+      overwrite:
+        description: 'Overwrite an existing release with this tag (default: fail instead, so old versions are kept)'
+        type: boolean
+        default: false
 
 # Needed so GITHUB_TOKEN may create a release and upload assets. Without this
 # the release step fails with "Resource not accessible by integration".
@@ -382,7 +386,20 @@ jobs:
           echo "uploading: ${ASSETS[@]}"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "release $TAG exists - replacing the built assets"
+            if [ "${{ inputs.overwrite }}" != "true" ]; then
+              # Refusing to clobber is deliberate: while the version stayed at
+              # 0.1.0 every run silently replaced the previous APK, so there
+              # was no way to go back to an earlier build. Raise
+              # buildozer.spec's `version` to publish a new one.
+              echo "::error::release $TAG already exists and 'overwrite' was not enabled."
+              echo "::error::Raise 'version' in buildozer.spec to publish a new version,"
+              echo "::error::or re-run with 'overwrite' ticked to replace $TAG in place."
+              echo ""
+              echo "Releases currently published:"
+              gh release list --limit 20 || true
+              exit 1
+            fi
+            echo "release $TAG exists - replacing the built assets (overwrite enabled)"
             # --clobber only overwrites same-named files; anything you added by
             # hand stays untouched.
             gh release upload "$TAG" "${ASSETS[@]}" --clobber
