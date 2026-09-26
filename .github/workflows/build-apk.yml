@@ -266,6 +266,10 @@ jobs:
           # $ or ` in the prose cannot be expanded by accident. (envsubst would
           # be the obvious tool but it lives in gettext-base, which is not
           # guaranteed on every runner image.)
+          # Changelog-only, on purpose. Install steps, caveats and usage live
+          # in the two READMEs and are one click away from this very page -
+          # repeating them here just made every release note a wall of text
+          # that aged badly (the steps stopped matching the app long ago).
           cat > release/notes.tmpl <<'EOF'
           # PicoKey Manager ${TAG}
 
@@ -279,72 +283,59 @@ jobs:
 
           ## 简体中文
 
-          PicoKey Manager 的安卓构建版本（[pypicokey](https://github.com/IsayIsee/pypicokey) 的移植版）。
+          ### 新增
 
-          - Commit：`${GITHUB_SHA}`
-          - 版本：`${VER}`（来自 `buildozer.spec`）
-          - 架构：`arm64-v8a`（debug 构建）
-          - 要求：Android 8.0 以上、支持 USB host、一根 OTG 转接线
+          - **固件刷写页** —— 支持 UF2（RP2040/RP2350）识别与 ESP32 ROM 串口下载协议；
+            固件可来自本地文件或 https 地址，加载后自动识别格式与适用芯片
+          - 文档补齐 RP2040 / RP2350 / ESP32-S2 / S3 四种芯片的差异
 
-          ### 安装
+          ### 修复
 
-          1. 下载下面的 APK。
-          2. 允许浏览器 / 文件管理器"安装未知应用"的权限。
-          3. 打开 App，点 **扫描 USB 设备**，并在弹窗里点 **允许**。
+          - 状态栏遮挡顶部内容（读取系统真实状态栏高度作为顶部间距）
+          - 长英文按钮文字被截断（按钮高度改为跟随换行后的文字高度）
+          - 固件刷写页点「扫描」时闪退（成功回调里的异常现在会走错误提示，不再终结主循环）
 
-          ### 本 release 里的两个文件
+          ### 变更
 
-          - `picokey-manager-${TAG}-arm64-debug.apk` —— 安卓 App，装到手机上用（需要 OTG 转接线）。
-          - `picokey-commissioner.html` —— **免安装、免编译**的网页版开光工具。把它放到仓库根目录并开启
-            GitHub Pages，然后用手机 Chrome 打开
-            `https://<用户名>.github.io/<仓库名>/picokey-commissioner.html` 即可，
-            不需要装任何 App，也不必等 Actions 编译。
+          - 固件刷写页按流程重排为「1. 选择板子 / 2. 选择固件 / 3. 写入」
+          - 移除界面里进下载模式的具体按键手势——不同开发板方式不同，写死会误导，
+            改为提示参照板子自身说明
 
-          两者功能重叠，网页版更快；App 的优势是**完全离线**，不依赖任何服务器。
+          `${GITHUB_SHA}` · v`${VER}` · `arm64-v8a` · debug 构建
 
-          ### 注意事项
-
-          - **debug 构建**，使用 debug 签名，安装时手机可能会提示风险。
-          - 由 AI 编写，且**从未在真实 PicoKey 上验证过**；出问题先怀疑这个 App。
-          - `WINK` 需要 FIDO HID 通道；写入 PHY 会让设备重启。
-          - **写 PHY 前先读一次**，确认数值无误再写。
-          - 界面支持简体中文 / English，App 右上角可切换。
+          安装方法与注意事项见 README。
 
           ---
 
           ## English
 
-          Android build of the PicoKey Manager (a port of [pypicokey](https://github.com/IsayIsee/pypicokey)).
+          ### Added
 
-          - Commit: `${GITHUB_SHA}`
-          - Version: `${VER}` (from `buildozer.spec`)
-          - Architecture: `arm64-v8a` (debug build)
-          - Requires: Android 8.0+ with USB host support, plus an OTG adapter
+          - **Flash firmware page** - UF2 sniffing (RP2040/RP2350) plus the ESP32
+            ROM serial download protocol; firmware can come from a local file or
+            an https URL, and the format and target chip are detected on load
+          - Docs now cover the differences between RP2040 / RP2350 / ESP32-S2 / S3
 
-          ### Install
+          ### Fixed
 
-          1. Download the APK below.
-          2. Allow "install from unknown sources" for your browser/files app.
-          3. Open the app, tap **Scan USB devices**, and **allow** the USB prompt.
+          - Status bar covering the top row (the real system status-bar height is
+            now read and applied as a top inset)
+          - Long English button labels being clipped (button height now follows
+            the wrapped text height)
+          - Crash when tapping **Scan** on the firmware page (an exception in the
+            success callback now shows an error instead of killing the app)
 
-          ### The two files in this release
+          ### Changed
 
-          - `picokey-manager-${TAG}-arm64-debug.apk` - the Android app (needs an OTG adapter).
-          - `picokey-commissioner.html` - a **zero-install, zero-compile** WebUSB commissioner.
-            Commit it at the repo root, turn on GitHub Pages, then open
-            `https://<user>.github.io/<repo>/picokey-commissioner.html` in Chrome on your phone.
-            No app to install, no Actions run to wait for.
+          - Firmware page restructured into "1. Pick the board / 2. Pick the
+            firmware / 3. Write"
+          - Removed the concrete button gestures for entering flashing mode -
+            they differ per board, so hardcoding them misleads. The UI now just
+            says to consult the board's own documentation
 
-          They overlap; the HTML is the faster route, the app's edge is that it works fully offline.
+          `${GITHUB_SHA}` - v`${VER}` - `arm64-v8a` - debug build
 
-          ### Caveats
-
-          - **Debug build**, signed with the debug key - Android may warn on install.
-          - Written by AI and **never run against a real PicoKey**; treat the app
-            as the suspect first if something misbehaves.
-          - `WINK` needs the FIDO HID channel; writing PHY config reboots the device.
-          - **Read the PHY config before writing it.**
-          - The UI speaks 简体中文 and English; switch from the spinner at the top.
+          See the README for install steps and caveats.
           EOF
           python3 - <<'PYEOF'
           import os
