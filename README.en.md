@@ -317,13 +317,11 @@ mistake) and shows the size and target chip.
 
 ### Entering flashing mode, per board
 
-**RP2040 / RP2350**: hold **BOOTSEL** → plug in → release. A drive appears on
-the phone; save the UF2 there and it flashes automatically. No drivers needed.
-
-**ESP32-S2 / S3**: hold **BOOT** → tap **RESET** → release RESET → release
-BOOT. If the order is wrong, or you only held BOOT without tapping RESET, the
-chip keeps running the old program. In download mode the device name becomes
-"USB JTAG/serial debug unit".
+How you enter flashing mode **differs per board** (RP2040/RP2350: hold
+BOOTSEL while plugging in; ESP32: a BOOT+RESET sequence), so the app no longer
+hardcodes any gesture — it only says "put the board into flashing mode" and
+leaves the specifics to your board's own documentation. In download mode the
+device name usually changes (an ESP32 becomes "USB JTAG/serial debug unit").
 
 ⚠️ **Neither flashing path has been verified on real hardware.**
 

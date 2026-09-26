@@ -165,6 +165,20 @@ KV_RULES = f"""
     text_size: self.size
     color: 0.55, 0.78, 1, 1
 
+# Wrapping body text. Every Label that holds more than a couple of words needs
+# BOTH text_size (so it wraps) and a height driven by texture_size (so it is
+# not clipped) - setting one without the other is what makes text overlap or
+# get cut off.
+<InfoLabel@Label>:
+    font_name: 'AppFont'
+    size_hint_y: None
+    height: self.texture_size[1] + dp(6)
+    text_size: self.width, None
+    font_size: '13sp'
+    halign: 'left'
+    valign: 'top'
+    color: 0.7, 0.75, 0.8, 1
+
 <FieldLabel@Label>:
     font_name: 'AppFont'
     size_hint_x: 0.42
@@ -229,51 +243,27 @@ BoxLayout:
             height: self.minimum_height
             spacing: dp(8)
             padding: 0, dp(4)
-            Label:
+            InfoLabel:
                 text: '@@fw_intro@@'
-                size_hint_y: None
-                height: self.texture_size[1]
-                text_size: self.width, None
                 font_size: '14sp'
-                halign: 'left'
-                valign: 'top'
-                color: 0.7, 0.75, 0.8, 1
-            Label:
+            InfoLabel:
                 text: '@@fw_warn_unverified@@'
-                size_hint_y: None
-                height: self.texture_size[1]
-                text_size: self.width, None
-                font_size: '13sp'
-                halign: 'left'
-                valign: 'top'
                 color: 1, 0.72, 0.42, 1
 
             SectionLabel:
-                text: '@@fw_scan_bootloader@@'
+                text: '@@fw_sec_device@@'
+            InfoLabel:
+                text: '@@fw_enter_mode_hint@@'
             MenuButton:
                 text: '@@fw_scan_bootloader@@'
                 on_release: app.fw_scan()
-            Label:
+            InfoLabel:
                 id: fw_dev
                 text: app.fw_dev_text
-                size_hint_y: None
-                height: self.texture_size[1] + dp(8)
-                text_size: self.width, None
                 font_size: '14sp'
-                halign: 'left'
-                valign: 'top'
-            Label:
-                text: '@@fw_howto_esp@@'
-                size_hint_y: None
-                height: self.texture_size[1]
-                text_size: self.width, None
-                font_size: '13sp'
-                halign: 'left'
-                valign: 'top'
-                color: 0.7, 0.75, 0.8, 1
 
             SectionLabel:
-                text: '@@fw_pick_file@@'
+                text: '@@fw_sec_image@@'
             TextInput:
                 id: fw_url
                 hint_text: '@@fw_url_hint@@'
@@ -286,31 +276,19 @@ BoxLayout:
             MenuButton:
                 text: '@@fw_pick_file@@'
                 on_release: app.fw_pick()
-            Label:
+            InfoLabel:
                 id: fw_info
                 text: app.fw_info_text
-                size_hint_y: None
-                height: self.texture_size[1] + dp(8)
-                text_size: self.width, None
                 font_size: '14sp'
-                halign: 'left'
-                valign: 'top'
 
+            SectionLabel:
+                text: '@@fw_sec_write@@'
             DangerButton:
                 text: '@@fw_flash_esp@@'
                 on_release: app.fw_flash()
             MenuButton:
                 text: '@@fw_save_uf2@@'
                 on_release: app.fw_save_uf2()
-            Label:
-                text: '@@fw_howto_uf2@@'
-                size_hint_y: None
-                height: self.texture_size[1]
-                text_size: self.width, None
-                font_size: '13sp'
-                halign: 'left'
-                valign: 'top'
-                color: 0.7, 0.75, 0.8, 1
 
             MenuButton:
                 text: '@@btn_back_scan@@'
@@ -923,12 +901,19 @@ class PicoKeyApp(App):
     def fw_scan(self):
         """Look for a board sitting in bootloader mode."""
         def work():
+            # Everything that touches the Java USB objects happens HERE, in
+            # the worker thread. Only plain strings cross back to the UI, so
+            # the Clock callback never has to touch a Java object.
             devices = usbhost.enumerate_devices()
             found = []
             for dev in devices:
                 kind = flasher.classify_bootloader(dev)
                 if kind:
-                    found.append((kind, dev))
+                    try:
+                        name = dev.label()
+                    except Exception:
+                        name = f"USB {dev.vid:04X}:{dev.pid:04X}"
+                    found.append((kind, dev, name))
             return found
 
         def ok(found):
@@ -938,11 +923,11 @@ class PicoKeyApp(App):
                 self.fw_dev_text = i18n.t("fw_no_bootloader")
                 self.log("fw_scan: nothing in bootloader mode")
                 return
-            kind, dev = found[0]
+            kind, dev, name = found[0]
             self._fw_dev = dev
             label = i18n.t("fw_kind_uf2") if kind == "uf2" else i18n.t("fw_kind_esp32")
-            self.fw_dev_text = i18n.t("fw_found_bootloader", kind=label, name=dev.label())
-            self.log(f"fw_scan: {kind} -> {dev.label()}")
+            self.fw_dev_text = i18n.t("fw_found_bootloader", kind=label, name=name)
+            self.log(f"fw_scan: {kind} -> {name}")
 
         self._worker(work, on_ok=ok, busy_text=i18n.t("scanning"))
 
@@ -1052,7 +1037,7 @@ class PicoKeyApp(App):
             return
         try:
             flasher.save_via_saf("firmware.uf2")
-            self.status_text = i18n.t("fw_howto_uf2")
+            self.status_text = i18n.t("fw_save_hint")
         except Exception as exc:
             self.log(f"fw_save_uf2: {exc}")
             self.status_text = i18n.t("fw_saf_failed", err=exc)
@@ -1073,7 +1058,11 @@ class PicoKeyApp(App):
                 Clock.schedule_once(lambda dt: self._fail(err, tb))
                 return
             if on_ok:
-                Clock.schedule_once(lambda dt: on_ok(result))
+                # An exception raised inside a Clock callback propagates into
+                # Kivy's main loop and takes the whole app down - which is what
+                # "tapping scan crashes instantly" looks like on a phone. Wrap
+                # the success path the same way the failure path already is.
+                Clock.schedule_once(lambda dt: self._safe(on_ok, result))
 
         # Drives `disabled:` on every MenuButton, so setting it here is
         # what actually greys the buttons out.
@@ -1081,11 +1070,21 @@ class PicoKeyApp(App):
         self.status_text = busy_text or i18n.t("msg_processing")
         threading.Thread(target=run, daemon=True).start()
 
+    def _safe(self, fn, *args):
+        """Run `fn` on the UI thread without letting it kill the app."""
+        try:
+            fn(*args)
+        except Exception as exc:
+            self._fail(exc, traceback.format_exc())
+
     def _fail(self, exc, tb):
         self.busy = False
         self.log(f"[error] {exc}")
         self.log(tb)
-        self.status_text = i18n.t("msg_failed", err=exc)
+        try:
+            self.status_text = i18n.t("msg_failed", err=exc)
+        except Exception:
+            self.status_text = str(exc)
 
     def _done(self, text=None):
         self.busy = False
