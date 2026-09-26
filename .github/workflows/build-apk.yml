@@ -92,6 +92,50 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # Pin the debug signing key.
+      #
+      # A fresh runner creates a brand-new debug keystore every build, so the
+      # APK is signed differently each time and Android refuses to update:
+      # "App not installed as package appears to be invalid" / signature
+      # mismatch, forcing an uninstall first - which wipes app data.
+      #
+      # Android's Gradle plugin signs debug builds with ~/.android/debug.keystore
+      # (alias androiddebugkey, password android) and auto-creates it when
+      # missing, so dropping a fixed one there is all it takes.
+      #
+      # A repository secret wins when set, so anyone who would rather not keep a
+      # key in git can store the same file base64-encoded as
+      # ANDROID_KEYSTORE_BASE64 and the committed copy is simply ignored.
+      - name: Install signing key
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -eu
+          mkdir -p "$HOME/.android"
+          KS="$HOME/.android/debug.keystore"
+
+          if [ -n "${KS_B64:-}" ]; then
+            printf '%s' "$KS_B64" | base64 -d > "$KS"
+            echo "::notice::using the keystore from ANDROID_KEYSTORE_BASE64"
+          elif [ -f tools/debug.keystore.b64 ]; then
+            base64 -d tools/debug.keystore.b64 > "$KS"
+            echo "::notice::using the keystore committed in tools/debug.keystore.b64"
+          else
+            echo "::error::no signing key available"
+            exit 1
+          fi
+
+          # Fail loudly here rather than shipping an APK that cannot be updated.
+          if ! keytool -list -keystore "$KS" \
+               -storepass android -alias androiddebugkey >/dev/null 2>&1; then
+            echo "::error::debug.keystore is unusable - wrong password or alias"
+            exit 1
+          fi
+
+          echo "Signing key in use:"
+          keytool -list -v -keystore "$KS" -storepass android 2>/dev/null \
+            | grep -E 'Alias name|SHA1' | head -2
+
       - name: Confirm toolchain
         run: |
           java -version
