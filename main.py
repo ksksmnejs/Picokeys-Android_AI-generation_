@@ -944,8 +944,14 @@ class PicoKeyApp(App):
             try:
                 data = saf.read_uri(uri)
             except Exception as exc:
-                self.log(f"fw_pick: {exc}")
-                self.fw_info_text = i18n.t("fw_pick_failed")
+                # Show the reason, not just "failed": without it a bad Uri and
+                # a missing provider look identical and there is nothing to act on.
+                detail = f"{type(exc).__name__}: {exc}"
+                self.log(f"fw_pick: {detail}")
+                self.fw_info_text = i18n.t("fw_pick_failed") + "\n" + detail
+                return
+            if not data:
+                self.fw_info_text = i18n.t("fw_pick_empty")
                 return
             name = saf.display_name(uri)
             if name:
