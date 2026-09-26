@@ -23,7 +23,7 @@ latest one. Older versions stay on the same page so you can roll back; see
 **Updates install over the old one — no uninstall needed.** Every build is signed
 with the same key.
 
-There is also a **web commissioning tool**, `picokey-commissioner.html`, deployed
+There is also a **web flashing tool**, `picokey-commissioner.html`, deployed
 through GitHub Pages — just open it in Chrome on your phone (WebUSB requires
 HTTPS, which Pages provides for free):
 
@@ -32,6 +32,16 @@ https://ksksmnejs.github.io/PicoKey-Manager-Android/
 ```
 
 It is deployed automatically by `.github/workflows/static.yml`; nothing to do.
+
+**What it does**: exactly one thing — flashes firmware onto an ESP32-S2 / S3 that
+is in download mode (using the esptool ROM protocol, no tools to install).
+
+**What it cannot do**: no VID/PID editing, no secure boot / secure lock, and no
+reading a running device. Chrome has blocked browser access to the smart-card
+(CCID) interface since version 67 (CVE-2018-6125), and CCID is exactly what
+PicoKey firmware uses while running — so once the firmware is up, the browser
+cannot see the board at all. Use the Android app for those (it talks to the
+Android USB Host API, which has no such restriction).
 
 
 ---
@@ -212,12 +222,14 @@ run, identify the file without flashing and read the log at each step.
 - The three firmwares (HSM / FIDO / OpenPGP) **cannot coexist**; switching
   requires flashing Pico Nuke to wipe first. Dedicate one board per purpose
   rather than switching back and forth.
-- The signing key `tools/debug.keystore.b64` is **public in this repo** so that
-  every automated build signs identically and updates install cleanly. The
-  trade-off: anyone could sign an APK with the same package name using it. A
-  debug key is not a security boundary by design (that is how Android works),
-  but if you would rather not, store your own key base64-encoded as the
-  repository secret `ANDROID_KEYSTORE_BASE64` — it takes priority and the
+- The signing key `tools/debug.keystore.b64` is public in this repo, so every
+  automated build signs identically and updates install cleanly. The trade-off:
+  anyone could sign an APK with the same package name using it. A debug key is
+  not a security boundary by design (that is how Android works).
+
+  **The next point only matters if you build this app yourself** — ordinary
+  users can ignore it: to use your own key instead, store it base64-encoded as
+  the repository secret `ANDROID_KEYSTORE_BASE64`; it takes priority and the
   committed one is ignored.
 
 ---

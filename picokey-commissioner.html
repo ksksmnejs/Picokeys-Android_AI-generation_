@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>PicoKey Commissioner (WebUSB)</title>
+<title>PicoKey Web Flasher (WebUSB)</title>
 <style>
   :root{
     --bg:#12161c; --panel:#1b2129; --panel2:#232b35; --line:#313c49;
@@ -45,6 +45,7 @@
   .banner{border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:10px}
   .banner.warn{background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.4);color:#fcd34d}
   .banner.danger{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.45);color:#fca5a5}
+  .banner.info{background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.4);color:#93c5fd}
   .kv{display:flex;justify-content:space-between;gap:10px;font:13px/1.8 var(--mono);
       border-bottom:1px dashed var(--line);padding:2px 0}
   .kv span:last-child{color:#7dd3fc}
@@ -52,6 +53,10 @@
   .tail{color:var(--dim);font-size:12px;text-align:center;margin:16px 0}
   details{margin-top:8px}
   summary{cursor:pointer;color:var(--dim);font-size:13px}
+  .filebtn{display:block;width:100%;text-align:center;background:var(--panel2);
+           border:1px dashed var(--line);border-radius:8px;padding:14px;color:var(--dim);font-size:13px}
+  #bar{height:8px;background:var(--panel2);border-radius:999px;overflow:hidden;margin-top:10px}
+  #barInner{height:100%;width:0;background:var(--accent);transition:width .15s}
 
   /* ---- modal ---- */
   #modalMask{position:fixed;inset:0;background:rgba(0,0,0,.62);
@@ -65,12 +70,10 @@
             padding:16px 18px;box-shadow:0 12px 40px rgba(0,0,0,.5)}
   #modalTitle{margin:0 0 8px;font-size:17px;display:flex;align-items:center;gap:8px}
   #modalBody{font-size:14px;line-height:1.65;color:#dbe4ee;white-space:pre-wrap}
-  #modalBody b{color:#fff}
   #modalFoot{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
   #modalIcon{font-size:19px}
   .lv-icon-ok{color:var(--ok)} .lv-icon-warn{color:var(--warn)} .lv-icon-err{color:var(--danger)}
 
-  /* ---- 状态徽标 ---- */
   .badge{display:inline-flex;align-items:center;gap:5px;font-size:12px;
          border-radius:999px;padding:3px 9px;border:1px solid var(--line);color:var(--dim)}
   .badge.on{color:var(--ok);border-color:rgba(34,197,94,.5);background:rgba(34,197,94,.1)}
@@ -89,128 +92,54 @@
   <button class="ghost" onclick="setLang('en')">English</button>
 </div>
 
-<h1 data-i18n="title">PicoKey 开光工具</h1>
-<div class="sub" data-i18n="subtitle">通过 WebUSB 直接配置 Pico FIDO 设备 · 无需安装 App · 无需编译</div>
+<h1 data-i18n="title">PicoKey 网页刷写工具</h1>
+<div class="sub" data-i18n="subtitle">通过 WebUSB 给 ESP32-S2 / S3 刷入固件 · 无需安装 App · 无需编译</div>
 
-<div class="banner warn" data-i18n="warnIrreversible"></div>
+<div class="banner danger" data-i18n="scopeWarn"></div>
 
-<!-- ============ 连接 ============ -->
-<h2 data-i18n="secConnect">1. 连接设备</h2>
+<!-- ============ 1. 连接 ============ -->
+<h2 data-i18n="secConnect">1. 连接处于下载模式的板子</h2>
 <div class="card">
   <div class="row">
     <button class="primary" id="btnConnect" onclick="connect()" data-i18n="btnConnect">选择 USB 设备</button>
     <button id="btnDiag" onclick="diagnose()" disabled data-i18n="btnDiag">诊断接口</button>
-    <button id="btnPowerOn" onclick="manualPowerOn()" disabled data-i18n="btnPowerOn">上电</button>
     <button id="btnDisconnect" onclick="disconnect()" disabled data-i18n="btnDisconnect">断开</button>
   </div>
   <div id="devInfo" class="hidden"></div>
-  <div id="devStatus"></div>
   <div class="sub" data-i18n="hintConnect" style="margin-top:8px"></div>
   <div class="sub" data-i18n="reconnectTip"></div>
 </div>
 
-<!-- ============ 读 ============ -->
-<h2 data-i18n="secRead">2. 开发板状态</h2>
+<!-- ============ 2. 选固件 ============ -->
+<h2 data-i18n="secPick">2. 选择固件文件</h2>
 <div class="card">
-  <div class="row">
-    <button id="btnRefresh" onclick="refreshAll()" disabled data-i18n="btnRefresh">重新读取全部</button>
-  </div>
-  <div class="sub" data-i18n="hintAuto"></div>
-  <div id="phyOut"></div>
-  <div id="flashOut"></div>
-  <div id="secOut"></div>
+  <input type="file" id="fileInput" accept=".bin,.uf2,.img,application/octet-stream" style="display:none" onchange="onFile(event)">
+  <label class="filebtn" for="fileInput" id="fileLabel" data-i18n="btnPickFile">点击选择 .bin 固件文件</label>
+  <div id="fileOut"></div>
 </div>
 
-<!-- ============ 开光 ============ -->
-<h2 data-i18n="secWrite">3. 写入配置（可反复修改）</h2>
+<!-- ============ 3. 刷写 ============ -->
+<h2 data-i18n="secFlash">3. 刷入固件</h2>
 <div class="card">
-  <div class="row" style="margin-bottom:10px">
-    <button class="primary" id="btnPresetYk" onclick="applyYubikey()" disabled data-i18n="btnPresetYk">填入 YubiKey 预设</button>
-    <button class="ghost" id="btnLoadCurrent" onclick="loadCurrent()" disabled data-i18n="btnLoadCurrent">载入当前值</button>
-  </div>
-
-  <label data-i18n="lblVid">VID（十六进制）</label>
-  <input type="text" id="vid" placeholder="1050" value="1050">
-  <label data-i18n="lblPid">PID（十六进制）</label>
-  <input type="text" id="pid" placeholder="0407" value="0407">
-  <label data-i18n="lblProduct">USB 产品名（Product Name）</label>
-  <input type="text" id="product" placeholder="yubico yubikey">
-
-  <div class="grid2">
-    <div>
-      <label data-i18n="lblLedGpio">LED GPIO</label>
-      <input type="number" id="ledGpio" placeholder="25">
-    </div>
-    <div>
-      <label data-i18n="lblBrightness">亮度 0-15</label>
-      <input type="number" id="brightness" placeholder="3" min="0" max="15">
-    </div>
-    <div>
-      <label data-i18n="lblUpBtn">触摸超时（秒）</label>
-      <input type="number" id="upBtn" placeholder="15">
-    </div>
-    <div>
-      <label data-i18n="lblLedDriver">LED 驱动</label>
-      <select id="ledDriver">
-        <option value="1">Pico (标准 GPIO)</option>
-        <option value="2">Pimoroni</option>
-        <option value="3">WS2812</option>
-        <option value="4">CYW43</option>
-        <option value="5">NeoPixel</option>
-        <option value="255">无</option>
-      </select>
-    </div>
-  </div>
-
-  <label data-i18n="lblOpts">选项（OPTS）</label>
-  <div class="chk"><input type="checkbox" id="optDimm"><span data-i18n="optDimm">LED 可调光</span></div>
-  <div class="chk"><input type="checkbox" id="optSteady"><span data-i18n="optSteady">LED 常亮（不闪烁）</span></div>
-  <div class="chk"><input type="checkbox" id="optWcid"><span data-i18n="optWcid">WCID</span></div>
-  <div class="chk"><input type="checkbox" id="optNoPwrRst"><span data-i18n="optNoPwrRst">禁用电源复位</span></div>
-
-  <div class="row" style="margin-top:12px">
-    <button class="primary" id="btnWritePhy" onclick="writePhy()" disabled data-i18n="btnWritePhy">写入 PHY 配置</button>
-  </div>
-  <div class="sub" data-i18n="hintWrite"></div>
-</div>
-
-<!-- ============ 危险区 ============ -->
-<h2 data-i18n="secDanger">4. 安全启动 / 安全锁（不可逆）</h2>
-<div class="card">
-  <div class="banner danger" data-i18n="dangerText"></div>
-
-  <div class="grid2">
-    <div>
-      <label data-i18n="lblSlot">密钥槽 0-15</label>
-      <input type="number" id="slot" value="0" min="0" max="15">
-    </div>
-    <div style="display:flex;align-items:flex-end;padding-bottom:9px">
-      <div class="chk" style="margin:0">
-        <input type="checkbox" id="chkLock"><span data-i18n="chkLock">同时启用 Secure Lock</span>
-      </div>
-    </div>
-  </div>
-
-  <div class="chk">
-    <input type="checkbox" id="chkUnderstand"><span data-i18n="chkUnderstand">我已知晓此操作永久不可逆</span>
-  </div>
-  <label data-i18n="lblConfirm">请输入 CONFIRM 以启用按钮</label>
-  <input type="text" id="confirmText" placeholder="CONFIRM" autocomplete="off">
-
+  <label data-i18n="lblOffset">写入偏移地址（十六进制）</label>
+  <input type="text" id="offset" value="0" inputmode="text">
+  <div class="sub" data-i18n="hintOffset"></div>
   <div class="row" style="margin-top:10px">
-    <button class="danger" id="btnSecure" onclick="setSecureBoot()" disabled data-i18n="btnSecure">设置安全启动</button>
+    <button class="danger" id="btnFlash" onclick="doFlash()" disabled data-i18n="btnFlash">刷入（会覆盖现有固件）</button>
   </div>
+  <div id="bar" class="hidden"><div id="barInner"></div></div>
+  <div class="sub" id="progText" style="margin-top:6px"></div>
+  <div class="banner warn" data-i18n="flashWarn" style="margin-top:10px"></div>
 </div>
 
-<!-- ============ 维护 ============ -->
-<h2 data-i18n="secMisc">5. 维护</h2>
+<!-- ============ 4. 安全启动 ============ -->
+<h2 data-i18n="secSecure">4. 安全启动 / 安全锁</h2>
 <div class="card">
-  <div class="row">
-    <button id="btnReboot" onclick="reboot(false)" disabled data-i18n="btnReboot">重启设备</button>
-    <button id="btnBootsel" onclick="reboot(true)" disabled data-i18n="btnBootsel">重启到刷机模式</button>
-  </div>
+  <div class="banner warn" data-i18n="secureBlocked"></div>
+  <div id="secureInfo"></div>
 </div>
 
+<!-- ============ 日志 ============ -->
 <h2 data-i18n="secLog">日志</h2>
 <div class="card">
   <div id="log"></div>
@@ -227,8 +156,8 @@
 </details>
 
 <div class="tail">
-  <span data-i18n="tail1">协议移植自 pypicokey (AGPL-3.0) · 本页为独立实现</span><br>
-  <span data-i18n="tail2">需要 HTTPS + Chrome/Edge · 桌面端可能被系统 CCID 驱动抢占</span>
+  <span data-i18n="tail1">esptool ROM 协议为独立实现，不含上游代码</span><br>
+  <span data-i18n="tail2">需要 HTTPS + Chrome/Edge · 仅支持 ESP32-S2 / S3 下载模式</span>
 </div>
 
 <div id="modalMask" class="hidden">
@@ -243,195 +172,143 @@
 
 <script>
 /* =========================================================================
-   PicoKey Commissioner — 单文件 WebUSB 开光工具
-   协议来源：pypicokey (AGPL-3.0) 的 PicoKey.py / PhyData.py / ICCD.py
-   本文件是独立实现，不含上游代码。
+   PicoKey Web Flasher — 单文件 WebUSB 刷写工具（ESP32-S2 / S3）
+
+   为什么只做刷写：Chrome 从 67 起（CVE-2018-6125）屏蔽了 WebUSB 对"受保护
+   接口类别"的访问，其中 0x0B（智能卡 / CCID）正是 PicoKey 固件运行时使用的
+   接口。所以固件正常运行时，浏览器根本看不到设备。
+
+   下载模式不同：ESP32 此时暴露的是 USB Serial/JTAG（厂商自定义接口），
+   不在受保护列表里，浏览器可以接管 —— 刷写因此可行。
    ========================================================================= */
 
+let LANG = 'zh';
 const I18N = {
   zh: {
-    title:"PicoKey 开光工具", subtitle:"通过 WebUSB 直接配置 Pico FIDO 设备 · 无需安装 App · 无需编译",
-    warnIrreversible:"⚠️ 「安全启动 / 安全锁」写入 OTP 熔丝，永久不可逆。其它项目（VID/PID、产品名、LED）可反复修改。建议顺序：先改 VID/PID 并验证 → 最后才碰安全启动。",
-    secConnect:"1. 连接设备", secRead:"2. 开发板状态", secWrite:"3. 写入配置（可反复修改）",
-    secDanger:"4. 安全启动 / 安全锁（不可逆）", secMisc:"5. 维护", secLog:"日志",
+    title:"PicoKey 网页刷写工具", subtitle:"通过 WebUSB 给 ESP32-S2 / S3 刷入固件 · 无需安装 App · 无需编译",
+    scopeWarn:"⚠️ 本页只能刷写固件，不能配置运行中的设备。\n\nChrome 屏蔽了浏览器对智能卡（CCID）接口的访问，而 PicoKey 固件正常运行时用的正是 CCID —— 所以固件跑起来以后，浏览器根本看不到这块板子。\n\n能连上的情况是：板子处于下载模式。此时它暴露的是串口/JTAG 接口（不在屏蔽列表），浏览器可以接管，因此刷写可行。改 VID/PID、开安全启动这类需要设备正常运行的配置，请用安卓 App。",
+    secConnect:"1. 连接处于下载模式的板子", secPick:"2. 选择固件文件",
+    secFlash:"3. 刷入固件", secSecure:"4. 安全启动 / 安全锁",
+    secLog:"日志", secChangelog:"更新日志", changelogTitle:"本页的更新记录",
     btnConnect:"选择 USB 设备", btnDiag:"诊断接口", btnDisconnect:"断开",
-    hintConnect:"用 OTG 线把设备插到手机上，然后点上面的按钮。若列表为空：换一根确认能传数据的线、确认设备已供电、确认没被其它 App 占用。",
-    btnReadPhy:"读取 PHY 配置", btnReadSecure:"读取安全状态", btnReadFlash:"读取 Flash",
-    btnPresetYk:"填入 YubiKey 预设", btnLoadCurrent:"载入当前值",
-    lblVid:"VID（十六进制）", lblPid:"PID（十六进制）", lblProduct:"USB 产品名（Product Name）",
-    lblLedGpio:"LED GPIO", lblBrightness:"亮度 0-15", lblUpBtn:"触摸超时（秒）", lblLedDriver:"LED 驱动",
-    lblOpts:"选项（OPTS）", optDimm:"LED 可调光", optSteady:"LED 常亮（不闪烁）",
-    optWcid:"WCID", optNoPwrRst:"禁用电源复位",
-    btnWritePhy:"写入 PHY 配置", hintWrite:"留空的字段会从设备当前值继承。写入后设备会自动重启。",
-    dangerText:"🚨 危险：Secure Boot 一旦开启，设备只能运行官方签名的固件，无法再刷第三方固件。Secure Lock 写入 OTP，物理固化。两者都无法撤销。ESP32-S3 上这两个功能可能未实现 —— 请先点「读取安全状态」确认设备有响应，再决定是否继续。",
-    lblSlot:"密钥槽 0-15", chkLock:"同时启用 Secure Lock",
-    chkUnderstand:"我已知晓此操作永久不可逆", lblConfirm:"请输入 CONFIRM 以启用按钮", btnSecure:"设置安全启动",
-    btnReboot:"重启设备", btnBootsel:"重启到刷机模式",
-    btnClearLog:"清空日志", btnCopyLog:"复制日志",
-    tail1:"协议移植自 pypicokey (AGPL-3.0) · 本页为独立实现",
-    tail2:"需要 HTTPS + Chrome/Edge · 桌面端可能被系统 CCID 驱动抢占",
+    btnPickFile:"点击选择 .bin 固件文件", btnFlash:"刷入（会覆盖现有固件）",
+    btnClearLog:"清空日志", btnCopyLog:"复制日志", btnModalOk:"知道了",
+    hintConnect:"让板子进入下载模式后再点上面的按钮。不同板子进入方式不同，请参考板子的说明。",
+    reconnectTip:"若选择器一直为空，先拔插设备再点一次。",
+    lblOffset:"写入偏移地址（十六进制）",
+    hintOffset:"PicoKeys 固件通常是 0。只有在你明确知道要写到别处时才改，填错会刷成砖（可救回：ROM 下载模式还在）。",
+    flashWarn:"⚠️ 刷写路径未在真机上验证过。第一次建议先确认日志里的每一步，再真正执行。刷错通常可救回——ESP32 的 ROM 下载模式不会被刷掉。",
+    secureBlocked:"本页无法开启安全启动 / 安全锁。\n\n原因同上：这两个操作要通过 CCID 向正常运行的固件发送指令，而 Chrome 屏蔽了 CCID。下载模式下固件没运行，也就无从配置。\n\n请用安卓 App（PicoKey Manager）来做这件事，它走的是 Android USB Host API，不受此限制。\n\n另外提醒：安全启动 / 安全锁烧的是 OTP 熔丝，永久不可逆。写入前请确认已备份、且接受只能运行官方签名固件的后果。",
+    tail1:"esptool ROM 协议为独立实现，不含上游代码",
+    tail2:"需要 HTTPS + Chrome/Edge · 仅支持 ESP32-S2 / S3 下载模式",
     // runtime
     noWebUSB:"此浏览器不支持 WebUSB。请用 Android 上的 Chrome 或 Edge（需 HTTPS）。",
     notSecure:"页面不在安全上下文（HTTPS），WebUSB 被禁用。",
-    connected:"已连接", noDevice:"未选择设备",
-    claimFail:"无法占用接口（可能被系统驱动或其它 App 占用）",
-    noIntf:"没找到可用的 CCID(0x0B) 或 Vendor(0xFF) 接口",
-    noBulk:"接口上没找到 bulk 端点",
-    selecting:"请在弹出的选择器中挑选你的 PicoKey…",
-    cancelled:"已取消选择",
-    okPhy:"PHY 读取成功", okSec:"安全状态读取成功", okWrite:"PHY 写入成功，设备将重启",
-    okSecure:"安全启动已设置（槽 {slot}），设备将重启",
-    okReboot:"重启指令已发送",
-    secUnavailable:"安全启动不可用（设备无响应）。ESP32-S3 可能未实现此功能 —— 请勿强行写入。",
-    readFirst:"请先连接设备",
-    needConfirm:"请勾选确认框并输入 CONFIRM",
-    swError:"设备返回错误状态码",
-    timeout:"传输超时",
-    disconnected:"设备已断开",
+    connected:"已连接", disconnected:"设备已断开",
+    selecting:"请在弹出的选择器中挑选你的板子…", cancelled:"已取消选择",
+    reused:"已复用上次授权的设备（跳过选择器）",
+    noDevice:"未连接设备",
     diagTitle:"— 接口诊断 —",
     intfLine:"接口 #{n}: class=0x{c} sub=0x{s} proto=0x{p}",
     epLine:"  端点 0x{a} dir={d} type={t}",
+    blockedLine:"  （受保护类别，浏览器不允许接管）",
     willUse:"将使用接口 #{n} (class=0x{c})",
-    hint:"提示：若 CCID 接口占用失败，可尝试 Vendor(0xFF) 救援接口。",
-    btnPowerOn:"上电", powerOnOk:"ICC 已上电",
-    errNotPowered:"ICC 未激活（需要先上电）",
-    autoPowerOn:"检测到 ICC 未激活，自动上电后重试…",
-    hintPowerOn:"若持续失败：拔插设备后重试，或点「上电」手动激活。",
-    btnRefresh:"重新读取全部", btnModalOk:"知道了",
-    hintAuto:"连接成功后会自动读取一次；也可以随时点上面的按钮刷新。",
-    stChannel:"通道", stPowered:"已上电", stYes:"是", stNo:"否",
-    stReading:"读取中…", stDone:"全部读取完成",
-    stFlashUsed:"Flash 已用", stFlashFiles:"文件数",
-    mNoUsbTitle:"浏览器不支持 WebUSB",
-    mNoUsbBody:"WebUSB 是这个页面连接设备的前提，当前浏览器没有提供它。\n\n请用 Android 手机上的 Chrome 或 Edge 打开本页。国内常见的 UC、QQ 浏览器、微信内置浏览器大多不支持。\n\n另外注意：地址必须是 https:// 开头。",
-    mNoHttpsTitle:"页面不在 HTTPS 下",
-    mNoHttpsBody:"浏览器只在安全上下文里开放 WebUSB，当前页面不是。\n\n如果你是通过 GitHub Pages 打开的，地址应该是 https://<用户名>.github.io/<仓库名>/picokey-commissioner.html —— 确认开头是 https，且没有被改成 http。",
-    mNoIntfTitle:"找不到可用接口",
-    mNoIntfBody:"设备上没找到 CCID(0x0B) 或 Vendor(0xFF) 接口，或者接口被系统驱动/其它 App 占用了。\n\n可以试试：\n1. 换一根确认能传数据的线（纯充电线不行）\n2. 拔插设备后重试\n3. 关闭可能占用它的其它应用\n4. 点「诊断接口」看设备到底暴露了什么",
-    mNoPowerTitle:"设备未上电",
-    mNoPowerBody:"已连上接口，但 ICC 状态显示未激活。后续读取大概率会失败。\n\n可以试试：拔插设备后重新连接，或点「上电」手动激活一次。",
-    mGoneTitle:"设备已断开",
-    mGoneBody:"设备从 USB 上消失了（可能是被拔掉，也可能是写入配置后自动重启了）。\n\n如果是刚写入 PHY 配置后断开，那属于正常现象 —— 重新插上再连一次即可。",
-    mPhyTitle:"PHY 配置读取成功",
-    mPhyBody:"已读到当前配置，下方输入框的空白项会自动继承这些值，不会把板子特有的设置冲掉。",
-    mFailTitle:"读取失败",
-    mPhyFailBody:"没能读到 PHY 配置。设备可能正忙、接口被占用，或者需要重新上电。\n\n先看日志里的具体报错，再试试拔插重连。",
-    mSecTitle:"安全启动状态",
-    mSecUnavailBody:"设备对安全状态查询没有返回有效数据。\n\n这通常意味着该固件/芯片上没有实现这个功能（ESP32-S3 上较常见）。\n\n请不要强行写入 —— OTP 熔丝一旦烧错是物理级不可逆的。",
-    mSecOnBody:"注意：这台设备已经开启了安全启动或安全锁，只能运行官方签名的固件。",
-    stPartial:"部分读取失败",
-    warnJtag:"注意：设备名看起来是 ESP32 的 Serial/JTAG 或下载接口，不是 PicoKey 的 CCID 接口。",
-    mJtagTitle:"可能选错了设备/模式",
-    mJtagBody:"这台设备自报为 USB JTAG/serial debug unit —— 那是 ESP32-S3 的串口/JTAG 或 ROM 下载接口，不是 PicoKey 固件运行时的 CCID 接口。对它发 CCID 指令不会有任何回应。\n\n常见原因：\n1. 板子正处在下载模式——拔掉重新插，上电时不要按住任何按键\n2. 刷的是别的固件\n\n重新插好后，设备名和 VID/PID 应该都会不同。",
-    mTimeoutTitle:"设备没有响应",
-    mTimeoutBody:"发出了指令但设备在 2.5 秒内没有回任何数据。通常意味着：\n\n1. 选中的接口不是 PicoKey 的 CCID 接口（比如选成了 ESP32 的下载接口）\n2. 板子卡在下载模式 —— 拔掉重新插，别按 BOOT\n3. 设备正忙或已断开\n\n按钮现在都可用了，可以点「诊断接口」看看设备到底暴露了什么，或「重新读取全部」再试一次。",
-    curVid:"当前 VID/PID", curProduct:"当前产品名",
-
-    /* --- 找不到设备：选择器为空时的排查指引 --- */
+    noUsableIntf:"没找到可用的 bulk 端点接口",
+    noFile:"请先选择固件文件",
+    filePicked:"已选择文件",
+    fileSize:"大小",
+    sniffEsp:"识别为 ESP 镜像（magic 0xE9）",
+    sniffUf2:"识别为 UF2 —— 这是 RP2040 / RP2350 的格式",
+    sniffUf2Hint:"UF2 要通过 U 盘拷贝（刷机模式下板子会变成一个 U 盘），浏览器做不到。请把这个文件用系统文件管理器存到 RPI-RP2 / RP2350 盘里，或改用安卓 App。",
+    sniffZip:"这看起来是 ZIP 压缩包，不是固件本体，请先解压。",
+    sniffGzip:"这看起来是 gzip 压缩包，不是固件本体，请先解压。",
+    sniffHtml:"这看起来是网页文件 —— 大概是下载时拿到了错误页面，请重新下载真正的固件。",
+    sniffUnknown:"无法识别文件类型。请确认这是 ESP32 的 .bin 固件镜像。",
+    flashing:"正在刷写…",
+    flashProgress:"块 {i} / {n}",
+    flashOk:"刷写完成，共写入 {n} 字节。拔插一次让板子以新固件启动。",
+    flashOkTitle:"刷写完成",
+    syncing:"正在与 ROM 引导程序握手…",
+    syncFail:"引导程序没应答 —— 板子真的在下载模式吗？",
+    espTimeout:"引导程序超时无响应",
+    espShort:"响应数据被截断",
+    espMismatch:"响应不匹配",
+    espStatus:"引导程序返回错误状态 {code}",
+    spiAttachNote:"SPI flash 挂载返回非零状态，继续尝试",
+    claimFail:"无法占用接口（可能被系统驱动或其它 App 占用）",
     mNoDevTitle:"没找到设备",
-    mNoDevBody:"选择器里一个设备都没有。这通常不是页面的问题，而是设备当前呈现的 USB 形态不被浏览器接管。\n\n按这个顺序排查：\n\n1. 板子必须正在运行 PicoKey 固件。如果它停在刷机/下载模式，就会变成 U 盘（RP2040/RP2350）或 JTAG 串口（ESP32）—— 浏览器一律不接管这两类接口，设备会被直接隐藏。做法是：拔掉、什么都不按、重新插。\n\n2. 换一根确认能传数据的线，纯充电线不行。\n\n3. 确认没有被其它 App 占用（手机上的串口助手、文件管理器都可能抢）。\n\n4. 桌面端还要注意：Chrome 会隐藏被系统驱动接管的设备（U 盘、摄像头、串口、HID 键鼠等）。\n\n如果以上都确认过还是空的，多半是这颗芯片在固件下没有暴露可接管的接口 —— 换用安卓 App 或桌面工具试试。",
-    reused:"已复用上次授权的设备（跳过选择器）",
-    reconnectTip:"若选择器一直为空，先拔插设备再点一次。",
-
-    /* --- 页面内更新日志 --- */
-    secChangelog:"更新日志",
-    changelogTitle:"本页的更新记录",
-    changelogText:"2026-09-26\n· 选择设备失败时（选择器为空）会弹出排查指引，不再只显示“已取消”\n· 启动时自动复用上次已授权的设备，不必每次都走选择器\n· 页面内新增本更新日志\n· 文案中的按键手势改为“上电时不要按住任何按键”，因为不同板子进入刷机模式的方式不同\n\n更早\n· 从 pypicokey 移植 CCID/CTAP 协议，实现 PHY 读写、安全启动、重启等\n· 增加中英双语切换",
+    mNoDevBody:"选择器里一个设备都没有。\n\n按这个顺序排查：\n\n1. 板子必须处于下载模式。正常运行 PicoKey 固件时它用的是 CCID 接口，Chrome 会屏蔽，设备直接不出现。\n\n2. 换一根确认能传数据的线，纯充电线不行。\n\n3. 确认没有被其它 App 占用（手机上的串口助手可能抢）。\n\n4. 桌面端还要注意：Chrome 会隐藏被系统驱动接管的设备（U 盘、摄像头、串口、HID 键鼠等）。",
+    mWrongModeTitle:"可能不在下载模式",
+    mWrongModeBody:"连上了，但握手失败 —— 引导程序没有应答。\n\n这通常说明板子不在下载模式，而是正常运行着固件（那样它用的是 CCID，连都连不上）或者跑的是别的程序。\n\n请让板子进入下载模式后重试；不同板子进入方式不同，请参考板子的说明。",
+    mFlashFailTitle:"刷写失败",
+    mFlashFailBody:"刷写过程中出错。\n\nESP32 通常可以救回：ROM 下载模式烧不掉，重新进入下载模式再刷一次即可。\n\n详情看日志里的具体报错。",
+    // 页面内更新日志
+    changelogText:"2026-10-09\n· 本页改为 ESP32-S2 / S3 固件刷写工具\n· 实现 esptool ROM 协议（SLIP 组帧 + FLASH_BEGIN/DATA/END），不上传 flasher stub\n· 顶部如实说明：Chrome 屏蔽 CCID，本页无法配置运行中的设备\n· 安全启动 / 安全锁标注为不可用，并引导到安卓 App\n· 选择设备失败时弹出排查指引，不再只显示“已取消”\n· 启动时自动复用上次已授权的设备\n\n更早\n· 原为 CCID 配置工具（因浏览器屏蔽 CCID 而无法工作）\n· 增加中英双语切换",
   },
   en: {
-    title:"PicoKey Commissioner", subtitle:"Configure Pico FIDO over WebUSB · no app · no compiling",
-    warnIrreversible:"⚠️ Secure Boot / Secure Lock burn OTP fuses and are PERMANENT. Everything else (VID/PID, product name, LED) can be changed repeatedly. Recommended order: set VID/PID and verify FIRST → touch secure boot LAST.",
-    secConnect:"1. Connect", secRead:"2. Board status", secWrite:"3. Write configuration (repeatable)",
-    secDanger:"4. Secure boot / secure lock (IRREVERSIBLE)", secMisc:"5. Maintenance", secLog:"Log",
+    title:"PicoKey Web Flasher", subtitle:"Flash ESP32-S2 / S3 firmware over WebUSB · no app · no compiling",
+    scopeWarn:"⚠️ This page can only FLASH firmware — it cannot configure a running device.\n\nChrome blocks browser access to the smart-card (CCID) interface, and CCID is exactly what PicoKey firmware uses while running. So once the firmware is up, the browser cannot see the board at all.\n\nWhat does work: download mode. There the ESP32 exposes a serial/JTAG interface, which is not on the blocked list, so the browser can claim it and flashing is possible. For anything that needs a running device — changing VID/PID, enabling secure boot — use the Android app.",
+    secConnect:"1. Connect the board in download mode", secPick:"2. Pick a firmware file",
+    secFlash:"3. Flash it", secSecure:"4. Secure boot / secure lock",
+    secLog:"Log", secChangelog:"Changelog", changelogTitle:"Changes to this page",
     btnConnect:"Select USB device", btnDiag:"Diagnose", btnDisconnect:"Disconnect",
-    hintConnect:"Plug the device in via an OTG cable, then tap the button. If the list is empty: use a known data-capable cable, make sure the device is powered, and make sure no other app holds it.",
-    btnReadPhy:"Read PHY", btnReadSecure:"Read security", btnReadFlash:"Read flash",
-    btnPresetYk:"Fill YubiKey preset", btnLoadCurrent:"Load current values",
-    lblVid:"VID (hex)", lblPid:"PID (hex)", lblProduct:"USB product name",
-    lblLedGpio:"LED GPIO", lblBrightness:"Brightness 0-15", lblUpBtn:"Touch timeout (s)", lblLedDriver:"LED driver",
-    lblOpts:"Options (OPTS)", optDimm:"LED dimmable", optSteady:"LED steady (no blink)",
-    optWcid:"WCID", optNoPwrRst:"Disable power-cycle on reset",
-    btnWritePhy:"Write PHY", hintWrite:"Blank fields are inherited from the device's current values. The device reboots after writing.",
-    dangerText:"🚨 DANGER: once Secure Boot is enabled the device only runs officially signed firmware — you can never flash third-party firmware again. Secure Lock burns OTP fuses. Neither can be undone. Both may be UNIMPLEMENTED on ESP32-S3 — tap \"Read security\" first and only continue if the device responds.",
-    lblSlot:"Key slot 0-15", chkLock:"Also enable Secure Lock",
-    chkUnderstand:"I understand this is permanent", lblConfirm:"Type CONFIRM to enable the button", btnSecure:"Set secure boot",
-    btnReboot:"Reboot", btnBootsel:"Reboot to flashing mode",
-    btnClearLog:"Clear log", btnCopyLog:"Copy log",
-    tail1:"Protocol ported from pypicokey (AGPL-3.0) · independent implementation",
-    tail2:"Requires HTTPS + Chrome/Edge · desktop may be blocked by the system CCID driver",
+    btnPickFile:"Tap to pick a .bin firmware file", btnFlash:"Flash (overwrites current firmware)",
+    btnClearLog:"Clear log", btnCopyLog:"Copy log", btnModalOk:"Got it",
+    hintConnect:"Put the board into download mode, then tap the button. How you do that differs per board — check the board's own documentation.",
+    reconnectTip:"If the chooser keeps coming up empty, unplug and replug, then tap again.",
+    lblOffset:"Write offset (hex)",
+    hintOffset:"Usually 0 for PicoKeys firmware. Only change it if you know exactly why — a wrong offset bricks the flash until you re-flash (recoverable: the ROM download mode survives).",
+    flashWarn:"⚠️ This flashing path has NOT been verified on real hardware. For the first run, read the log and confirm each step before committing. A bad flash is usually recoverable — the ESP32 ROM download mode cannot be erased.",
+    secureBlocked:"This page cannot enable secure boot / secure lock.\n\nSame reason as above: both are sent over CCID to a running firmware, and Chrome blocks CCID. In download mode the firmware is not running, so there is nothing to configure.\n\nUse the Android app (PicoKey Manager) instead — it talks to the Android USB Host API, which has no such restriction.\n\nAlso: secure boot / secure lock burn OTP fuses and are permanent. Back up first, and accept that the device will only run officially signed firmware.",
+    tail1:"esptool ROM protocol, implemented independently",
+    tail2:"Requires HTTPS + Chrome/Edge · ESP32-S2 / S3 download mode only",
     noWebUSB:"WebUSB is not supported. Use Chrome or Edge on Android (over HTTPS).",
     notSecure:"Page is not in a secure context (HTTPS); WebUSB is disabled.",
-    connected:"Connected", noDevice:"No device selected",
-    claimFail:"Could not claim the interface (held by a system driver or another app?)",
-    noIntf:"No usable CCID(0x0B) or Vendor(0xFF) interface found",
-    noBulk:"No bulk endpoints on that interface",
-    selecting:"Pick your PicoKey in the chooser…",
-    cancelled:"Selection cancelled",
-    okPhy:"PHY read OK", okSec:"Security state read OK", okWrite:"PHY written; device will reboot",
-    okSecure:"Secure boot set (slot {slot}); device will reboot",
-    okReboot:"Reboot command sent",
-    secUnavailable:"Secure boot unavailable (no response). It may be unimplemented on ESP32-S3 — do NOT force it.",
-    readFirst:"Connect a device first",
-    needConfirm:"Check the box and type CONFIRM",
-    swError:"Device returned an error status",
-    timeout:"Transfer timed out",
-    disconnected:"Device disconnected",
+    connected:"Connected", disconnected:"Device disconnected",
+    selecting:"Pick your board in the chooser…", cancelled:"Selection cancelled",
+    reused:"Reusing the previously authorised device (chooser skipped)",
+    noDevice:"Not connected",
     diagTitle:"— Interface diagnostics —",
     intfLine:"Interface #{n}: class=0x{c} sub=0x{s} proto=0x{p}",
-    epLine:"  EP 0x{a} dir={d} type={t}",
-    willUse:"Using interface #{n} (class=0x{c})",
-    hint:"Tip: if the CCID interface can't be claimed, try the Vendor(0xFF) rescue interface.",
-    btnPowerOn:"Power on", powerOnOk:"ICC powered on",
-    errNotPowered:"ICC not active (power-on required)",
-    autoPowerOn:"ICC not active — powering on and retrying…",
-    hintPowerOn:"If this keeps failing: unplug/replug, then tap \"Power on\" manually.",
-    btnRefresh:"Re-read all", btnModalOk:"OK",
-    hintAuto:"Read once automatically after connecting; tap the button any time to refresh.",
-    stChannel:"channel", stPowered:"powered", stYes:"yes", stNo:"no",
-    stReading:"reading…", stDone:"All reads finished",
-    stFlashUsed:"flash used", stFlashFiles:"files",
-    mNoUsbTitle:"This browser has no WebUSB",
-    mNoUsbBody:"WebUSB is how this page talks to the device, and this browser does not expose it.\n\nOpen the page in Chrome or Edge on Android. Many bundled/in-app browsers (WeChat, UC, QQ) do not support it.\n\nAlso: the address must start with https://.",
-    mNoHttpsTitle:"Page is not on HTTPS",
-    mNoHttpsBody:"Browsers only expose WebUSB in a secure context, and this page is not one.\n\nIf you are using GitHub Pages the URL should look like https://<user>.github.io/<repo>/picokey-commissioner.html — check that it really starts with https and was not downgraded to http.",
-    mNoIntfTitle:"No usable interface",
-    mNoIntfBody:"No CCID(0x0B) or Vendor(0xFF) interface was found, or the interface is held by a system driver / another app.\n\nThings to try:\n1. Use a cable you know carries data (charge-only cables will not work)\n2. Unplug and reconnect\n3. Close other apps that may hold the device\n4. Tap \"Diagnose\" to see what the device actually exposes",
-    mNoPowerTitle:"Device is not powered on",
-    mNoPowerBody:"The interface is claimed, but the ICC reports it is inactive. Reads will most likely fail.\n\nTry unplugging and reconnecting, or tap \"Power on\" to activate it manually.",
-    mGoneTitle:"Device disconnected",
-    mGoneBody:"The device disappeared from USB — either it was unplugged, or it rebooted on its own after a config write.\n\nIf this happened right after writing PHY config, that is expected: plug it back in and connect again.",
-    mPhyTitle:"PHY config read successfully",
-    mPhyBody:"Current config loaded. Blank fields below inherit these values, so board-specific settings will not be wiped.",
-    mFailTitle:"Read failed",
-    mPhyFailBody:"Could not read PHY config. The device may be busy, the interface may be held, or it may need a power-on.\n\nCheck the log for the exact error, then try unplugging and reconnecting.",
-    mSecTitle:"Secure boot status",
-    mSecUnavailBody:"The device returned no valid data for the security query.\n\nThis usually means the feature is not implemented on this firmware/chip (common on ESP32-S3).\n\nDo NOT force the write — a mis-burned OTP fuse is physically irreversible.",
-    mSecOnBody:"Note: this device already has secure boot or secure lock enabled, so it only runs officially signed firmware.",
-    stPartial:"Some reads failed",
-    warnJtag:"Note: the device name looks like the ESP32 Serial/JTAG or download interface, not PicoKey's CCID interface.",
-    mJtagTitle:"Wrong device or wrong mode?",
-    mJtagBody:"This device reports itself as a USB JTAG/serial debug unit - that is the ESP32-S3 serial/JTAG or ROM-download interface, not the CCID interface PicoKey firmware exposes while running. Sending CCID to it gets no answer at all.\n\nUsual causes:\n1. The board is in download mode (BOOT was held while plugging in) - unplug and replug WITHOUT holding BOOT\n2. Something other than PicoKey firmware is flashed\n\nAfter replugging, the device name should look like PicoKey and the VID/PID will differ.",
-    mTimeoutTitle:"Device did not respond",
-    mTimeoutBody:"A command was sent but nothing came back within 2.5 s. Usually that means:\n\n1. The interface you picked is not PicoKey's CCID interface (e.g. the ESP32 download interface)\n2. The board is stuck in download mode - unplug and replug without holding BOOT\n3. The device is busy or has gone away\n\nAll buttons are usable now: tap \"Diagnose\" to see what the device actually exposes, or \"Re-read all\" to try again.",
-    curVid:"Current VID/PID", curProduct:"Current product name",
-
-    /* --- device not found: guidance shown when the chooser comes up empty --- */
+    epLine:"  endpoint 0x{a} dir={d} type={t}",
+    blockedLine:"  (protected class — the browser refuses to claim it)",
+    willUse:"Will use interface #{n} (class=0x{c})",
+    noUsableIntf:"No interface with usable bulk endpoints",
+    noFile:"Pick a firmware file first",
+    filePicked:"File selected",
+    fileSize:"Size",
+    sniffEsp:"Looks like an ESP image (magic 0xE9)",
+    sniffUf2:"That is a UF2 — the RP2040 / RP2350 format",
+    sniffUf2Hint:"UF2 is copied onto a USB drive (in flashing mode the board becomes one); a browser cannot do that. Save the file onto the RPI-RP2 / RP2350 drive using your file manager, or use the Android app.",
+    sniffZip:"That looks like a ZIP archive, not the firmware itself — extract it first.",
+    sniffGzip:"That looks like a gzip archive, not the firmware itself — extract it first.",
+    sniffHtml:"That looks like a web page — you probably downloaded an error page. Re-download the real firmware.",
+    sniffUnknown:"Could not identify the file. Make sure this is an ESP32 .bin firmware image.",
+    flashing:"Flashing…",
+    flashProgress:"Block {i} / {n}",
+    flashOk:"Done — wrote {n} bytes. Unplug and replug so the board boots the new firmware.",
+    flashOkTitle:"Flash complete",
+    syncing:"Handshaking with the ROM bootloader…",
+    syncFail:"Bootloader did not answer — is the board really in download mode?",
+    espTimeout:"Bootloader timed out",
+    espShort:"Truncated response",
+    espMismatch:"Unexpected response",
+    espStatus:"Bootloader returned status {code}",
+    spiAttachNote:"SPI flash attach returned non-zero; continuing anyway",
+    claimFail:"Could not claim the interface (held by a system driver or another app?)",
     mNoDevTitle:"No device found",
-    mNoDevBody:"The chooser came up empty. That is usually not a problem with this page — the device is presenting itself in a USB form the browser will not take over.\n\nWork through these in order:\n\n1. The board must be RUNNING the PicoKey firmware. If it is stuck in flashing/download mode it shows up as a USB drive (RP2040/RP2350) or a JTAG serial port (ESP32) — the browser refuses to claim both, so the device is hidden outright. Fix: unplug, press nothing, plug back in.\n\n2. Use a cable you know carries data; charge-only cables do not work.\n\n3. Make sure no other app holds it (serial terminals, file managers).\n\n4. On desktop, Chrome also hides devices already claimed by a system driver (USB drives, cameras, serial ports, HID keyboards/mice).\n\nIf all of that checks out and it is still empty, the chip probably exposes no claimable interface under this firmware — try the Android app or a desktop tool instead.",
-    reused:"Reusing the previously authorised device (chooser skipped)",
-    reconnectTip:"If the chooser keeps coming up empty, unplug and replug, then tap again.",
-
-    /* --- in-page changelog --- */
-    secChangelog:"Changelog",
-    changelogTitle:"Changes to this page",
-    changelogText:"2026-09-26\n· When no device appears, the page now explains why instead of just saying \"cancelled\"\n· Previously authorised devices are reused on load, so you do not re-pick every time\n· Added this in-page changelog\n· Button gestures in the text are now \"hold no buttons while powering up\" — entering flashing mode differs per board\n\nEarlier\n· Ported the CCID/CTAP protocol from pypicokey: PHY read/write, secure boot, reboot\n· Added the Chinese / English switch",
+    mNoDevBody:"The chooser came up empty.\n\nWork through these in order:\n\n1. The board must be in DOWNLOAD MODE. Running normal PicoKey firmware it uses CCID, which Chrome blocks, so the device does not appear at all.\n\n2. Use a cable you know carries data; charge-only cables do not work.\n\n3. Make sure no other app holds it (a serial terminal on the phone can grab it).\n\n4. On desktop, Chrome also hides devices already claimed by a system driver (USB drives, cameras, serial ports, HID keyboards/mice).",
+    mWrongModeTitle:"Probably not in download mode",
+    mWrongModeBody:"Connected, but the handshake failed — the bootloader did not answer.\n\nThat usually means the board is not in download mode: it is running firmware normally (which uses CCID and could not be claimed at all), or it is running something else.\n\nPut it into download mode and try again; the method differs per board, so check the board's documentation.",
+    mFlashFailTitle:"Flash failed",
+    mFlashFailBody:"Something went wrong while flashing.\n\nAn ESP32 is usually recoverable: the ROM download mode cannot be erased, so re-enter download mode and flash again.\n\nSee the log for the exact error.",
+    changelogText:"2026-10-09\n· This page is now an ESP32-S2 / S3 firmware flasher\n· Implemented the esptool ROM protocol (SLIP framing + FLASH_BEGIN/DATA/END), no flasher stub uploaded\n· The top banner now states plainly that Chrome blocks CCID, so this page cannot configure a running device\n· Secure boot / secure lock marked unavailable, with a pointer to the Android app\n· When no device appears the page explains why instead of just saying \"cancelled\"\n· Previously authorised devices are reused on load\n\nEarlier\n· Was a CCID configuration tool (unusable: browsers block CCID)\n· Added the Chinese / English switch",
   }
 };
 
-let LANG = 'zh';
 function t(k, vars){
-  let s = (I18N[LANG] && I18N[LANG][k]) || k;
-  if (vars) for (const [a,b] of Object.entries(vars)) s = s.replace('{'+a+'}', b);
+  let s = (I18N[LANG] && I18N[LANG][k]) || (I18N.zh[k]) || k;
+  if (vars) for (const [a,b] of Object.entries(vars)) s = s.split('{'+a+'}').join(b);
   return s;
 }
 function setLang(l){
@@ -439,162 +316,117 @@ function setLang(l){
   document.querySelectorAll('[data-i18n]').forEach(el=>{
     el.textContent = t(el.getAttribute('data-i18n'));
   });
+  renderSecureInfo();
   log('lang = ' + l, 'dim');
-}
-function clearLang(){
-  document.querySelectorAll('.langbar button').forEach(b=>b.classList.remove('primary'));
 }
 
 /* ------------------------------- logging ------------------------------- */
 const logEl = document.getElementById('log');
+const MAXLOG = 400;
 function log(msg, level){
+  const d = document.createElement('div');
+  d.className = 'lv-' + (level||'dim');
   const ts = new Date().toTimeString().slice(0,8);
-  const cls = level ? 'lv-' + level : '';
-  const line = document.createElement('div');
-  line.className = cls;
-  line.textContent = '[' + ts + '] ' + msg;
-  logEl.appendChild(line);
+  d.textContent = '[' + ts + '] ' + msg;
+  logEl.appendChild(d);
+  while (logEl.childNodes.length > MAXLOG) logEl.removeChild(logEl.firstChild);
   logEl.scrollTop = logEl.scrollHeight;
 }
-function hex(b){ return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join(' '); }
 function clearLog(){ logEl.innerHTML=''; }
+function copyLog(){
+  navigator.clipboard.writeText(logEl.innerText)
+    .then(()=>log('copied','dim')).catch(()=>log('copy failed','warn'));
+}
 
-/* ------------------------------- modal -------------------------------
-   Anything the user MUST see goes here instead of only into the log —
-   a red line at the bottom of a scrolling log is easy to miss, especially
-   on a phone. Uses plain text (not innerHTML) so translated strings can
-   never inject markup.
-   ------------------------------------------------------------------- */
-const MODAL_ICON = { ok:'✅', warn:'⚠️', err:'🚨' };
+/* ------------------------------- modal ------------------------------- */
+const MODAL_ICON = {ok:'✅', warn:'⚠️', err:'🚨'};
 function showModal(titleKey, bodyKey, level){
-  const mask = document.getElementById('modalMask');
-  const icon = document.getElementById('modalIcon');
   document.getElementById('modalTitleText').textContent = t(titleKey);
   document.getElementById('modalBody').textContent = t(bodyKey);
+  const icon = document.getElementById('modalIcon');
   icon.textContent = MODAL_ICON[level] || 'ℹ️';
   icon.className = 'lv-icon-' + (level || 'ok');
-  mask.classList.remove('hidden');
+  document.getElementById('modalMask').classList.remove('hidden');
   log('[modal:' + level + '] ' + t(titleKey), level === 'ok' ? 'ok' : level);
 }
-function closeModal(){
-  document.getElementById('modalMask').classList.add('hidden');
+function showRawModal(title, body, level){
+  document.getElementById('modalTitleText').textContent = title;
+  document.getElementById('modalBody').textContent = body;
+  const icon = document.getElementById('modalIcon');
+  icon.textContent = MODAL_ICON[level] || 'ℹ️';
+  icon.className = 'lv-icon-' + (level || 'ok');
+  document.getElementById('modalMask').classList.remove('hidden');
 }
-document.getElementById('modalMask').addEventListener('click', (ev)=>{
+function closeModal(){ document.getElementById('modalMask').classList.add('hidden'); }
+document.getElementById('modalMask').addEventListener('click', ev=>{
   if (ev.target.id === 'modalMask') closeModal();
 });
 
-/* ------------------------------- status badges -------------------------------
-   Board status is fetched automatically on connect, so the user does not have
-   to know which of the three read commands to press first.
-   -------------------------------------------------------------------------- */
-function badge(text, kind){
-  return '<span class="badge ' + (kind||'off') + '">' + text + '</span>';
-}
-function renderStatus(s){
-  const el = document.getElementById('devStatus');
-  if (!s){ el.innerHTML = ''; return; }
-  let h = '<div class="statusgrid">';
-  h += badge(t('stChannel') + ': ' + s.channel, 'on');
-  if (s.powered !== undefined) h += badge(t('stPowered') + ': ' + (s.powered ? t('stYes') : t('stNo')), s.powered ? 'on' : 'warn');
-  if (s.product) h += badge(s.product, 'on');
-  h += '</div>';
-  el.innerHTML = h;
-}
-
-async function refreshAll(){
-  if (!device){ log(t('noDevice'),'warn'); return; }
-  const btn = document.getElementById('btnRefresh');
-  btn.disabled = true;
-  document.getElementById('devStatus').innerHTML =
-    '<div class="statusgrid"><span class="badge"><span class="spin"></span> ' + t('stReading') + '</span></div>';
-  try {
-    const phy = await readPhy(true);
-    await readFlash(true);
-    await readSecure(true);
-    if (phy){
-      log(t('stDone'), 'ok');
-    } else {
-      log(t('stPartial'), 'warn');
-      showModal('mTimeoutTitle','mTimeoutBody','warn');
-    }
-  } catch(e){
-    log('refresh: ' + e.message, 'warn');
-  }
-  btn.disabled = !device;
-  renderStatus(boardStatus);
-}
-
-function copyLog(){
-  navigator.clipboard && navigator.clipboard.writeText(logEl.innerText);
-  log('copied', 'dim');
-}
-
-/* ------------------------------- USB state ------------------------------- */
+/* --------------------------- USB state --------------------------- */
 let device = null;
-let iface = null;
-let epIn = null;   // bulk IN  endpoint number
-let epOut = null;  // bulk OUT endpoint number
-let seq = 0;       // CCID bSeq
-let currentPhy = null;
-let boardStatus = {};   // auto-fetched board state, shown as badges
+let epIn = null, epOut = null, ifaceNum = null;
+let fwData = null;      // Uint8Array
+let fwReady = false;    // recognised as an ESP image
 
-/* Buttons that do nothing until a device is connected. Keeping them enabled
-   and erroring on click is worse UX: a greyed button explains itself. */
-const GATED = ['btnRefresh','btnPresetYk','btnLoadCurrent','btnWritePhy',
-               'btnReboot','btnBootsel'];
-function setGated(enabled){
-  for (const id of GATED){
-    const el = document.getElementById(id);
-    if (el) el.disabled = !enabled;
+/* Interface classes Chrome refuses to hand to a page. From the WebUSB spec,
+   added in Chrome 67 after CVE-2018-6125 (WebUSB used to bypass the FIDO U2F
+   origin check through a YubiKey's CCID interface). */
+const PROTECTED = new Set([0x01,0x03,0x08,0x0B,0x0E,0x10,0xE0]);
+const CLASSNAME = {0x01:'audio',0x02:'CDC control',0x03:'HID',0x08:'mass storage',
+  0x0A:'CDC data',0x0B:'smart card (CCID)',0x0E:'video',0x10:'audio/video',
+  0xE0:'wireless',0xFF:'vendor specific'};
+function hex(v,n){ return '0x'+v.toString(16).toUpperCase().padStart(n||2,'0'); }
+
+function pickEspInterface(dev){
+  const ifaces = (dev.configuration && dev.configuration.interfaces) || [];
+  const found = [];
+  for (const iface of ifaces){
+    const alt = iface.alternates[0];
+    if (!alt) continue;
+    const cls = alt.interfaceClass;
+    let inEp = null, outEp = null;
+    for (const ep of alt.endpoints){
+      if (ep.type !== 'bulk') continue;
+      if (ep.direction === 'in') inEp = ep.endpointNumber;
+      else outEp = ep.endpointNumber;
+    }
+    log(t('intfLine',{n:iface.interfaceNumber, c:hex(cls), s:hex(alt.interfaceSubclass),
+                      p:hex(alt.interfaceProtocol)})
+        + '  ' + (CLASSNAME[cls]||'') + (inEp!=null&&outEp!=null?'  ✓ bulk':'')
+        + (PROTECTED.has(cls) ? '  ⛔' : ''), PROTECTED.has(cls) ? 'warn' : 'dim');
+    if (PROTECTED.has(cls)) continue;
+    if (inEp == null || outEp == null) continue;
+    // esptool talks to the vendor-specific interface; fall back to CDC data,
+    // then to anything else that has bulk endpoints.
+    const score = cls === 0xFF ? 0 : (cls === 0x0A ? 1 : 2);
+    found.push({n:iface.interfaceNumber, cls, inEp, outEp, score});
   }
-  // btnSecure has an extra CONFIRM gate on top of "device connected".
-  if (typeof updateSecureGate === 'function') updateSecureGate();
+  if (!found.length) return null;
+  found.sort((a,b)=>a.score-b.score);
+  return found[0];
 }
 
-const AID_SELECT = [0x00,0xA4,0x04,0x04,0x08,0xA0,0x58,0x3F,0xC1,0x9B,0x7E,0x4F,0x21,0x00];
-const SW_OK = 0x9000;
-
-function hex2(v, fallback){
-  if (v === null || v === undefined || String(v).trim()==='') return fallback;
-  const n = parseInt(String(v).trim(), 16);
-  return isNaN(n) ? fallback : n;
-}
-function intOr(v, fallback){
-  if (v === null || v === undefined || String(v).trim()==='') return fallback;
-  const n = parseInt(String(v).trim(), 10);
-  return isNaN(n) ? fallback : n;
-}
-
-/* ------------------------------- connect ------------------------------- */
 async function connect(){
   if (!navigator.usb){ log(t('noWebUSB'),'err'); return; }
   if (!window.isSecureContext){ log(t('notSecure'),'err'); return; }
-  // Already authorised? Skip the chooser entirely. requestDevice() is the only
-  // call that can come up empty, and re-picking a device the user already
-  // granted is pure friction - especially since Android drops the grant on
-  // every unplug, so the common case really is a fresh pick.
+
+  // Reuse an already authorised device: requestDevice() is the only call that
+  // can come up empty, and re-picking something the user already granted is
+  // pure friction (Android even drops the grant on every unplug).
   let picked = null;
   try {
     const known = await navigator.usb.getDevices();
-    if (known && known.length){
-      picked = known[0];
-      log(t('reused'), 'ok');
-    }
-  } catch(e){ /* optional; fall through to the picker */ }
+    if (known && known.length){ picked = known[0]; log(t('reused'),'ok'); }
+  } catch(e){ /* optional */ }
 
   if (!picked){
     log(t('selecting'),'dim');
     try {
-      // No filters: let the user pick anything, so unknown VID/PIDs still work.
-      // An empty filter lists every device the browser is willing to claim, so
-      // an empty chooser means "nothing claimable", not "wrong filter".
       picked = await navigator.usb.requestDevice({ filters: [] });
     } catch(e){
       const name = (e && e.name) || '';
       if (name === 'NotFoundError'){
-        // The chooser came up empty. Reporting "cancelled" here is both wrong
-        // and useless: the user needs to know why nothing was listed at all.
-        log(t('mNoDevTitle'), 'err');
+        // Empty chooser. "Cancelled" would be both wrong and useless here.
         showModal('mNoDevTitle','mNoDevBody','err');
         return;
       }
@@ -602,546 +434,321 @@ async function connect(){
     }
   }
   device = picked;
-  log(t('connected') + ': ' + device.manufacturerName + ' / ' + device.productName +
-      '  [0x' + device.vendorId.toString(16).padStart(4,'0') + ':0x' +
-      device.productId.toString(16).padStart(4,'0') + ']', 'ok');
+  log(t('connected') + ': ' + (device.manufacturerName||'?') + ' / ' +
+      (device.productName||'?') + '  [' + hex(device.vendorId,4) + ':' +
+      hex(device.productId,4) + ']', 'ok');
 
-  try { await device.open(); } catch(e){ log('open failed: '+e.message,'err'); return; }
-
-  const ok = await pickInterface();
-  if (!ok){
-    showModal('mNoIntfTitle','mNoIntfBody','err');
-    try { await device.close(); } catch(e){}
-    resetUi();
-    return;
-  }
-
-  // Enable the UI FIRST. Nothing below may block the buttons: a stalled
-  // transfer used to leave every control greyed out forever, because
-  // setGated(true) sat after an await that never settled.
   device.addEventListener('disconnect', ()=>{
-    log(t('disconnected'),'warn');
-    showModal('mGoneTitle','mGoneBody','warn');
-    resetUi();
+    log(t('disconnected'),'warn'); resetUi();
   });
 
-  document.getElementById('btnDiag').disabled = false;
-  document.getElementById('btnPowerOn').disabled = false;
-  document.getElementById('btnDisconnect').disabled = false;
-  setGated(true);
-  showDevInfo();
+  try { await device.open(); } catch(e){ log('open failed: '+e.message,'err'); return; }
+  try { if (!device.configuration) await device.selectConfiguration(1); }
+  catch(e){ log('selectConfiguration: '+e.message,'warn'); }
 
-  boardStatus = { channel: 'CCID/0x0B' };
-  renderStatus(boardStatus);
+  const pick = pickEspInterface(device);
+  if (!pick){
+    log(t('noUsableIntf'),'err');
+    showModal('mNoDevTitle','mNoDevBody','err');
+    return;
+  }
+  log(t('willUse',{n:pick.n, c:hex(pick.cls)}), 'ok');
 
-  // An ESP32-S3 presenting as "USB JTAG/serial debug unit" is its
-  // Serial/JTAG or ROM-download interface, not the PicoKey CCID applet.
-  // Talking CCID to it will never get an answer.
-  const nm = ((device.manufacturerName||'') + ' ' + (device.productName||'')).toLowerCase();
+  try { await device.claimInterface(pick.n); }
+  catch(e){ log(t('claimFail') + ' — ' + e.message,'err'); return; }
+
+  ifaceNum = pick.n; epIn = pick.inEp; epOut = pick.outEp;
+
+  const nm = ((device.manufacturerName||'')+' '+(device.productName||'')).toLowerCase();
   if (nm.includes('jtag') || nm.includes('serial debug')){
-    log(t('warnJtag'), 'warn');
-    showModal('mJtagTitle','mJtagBody','warn');
+    log('ℹ️ ' + (LANG==='zh'
+      ? '设备名是串口/JTAG —— 这正是下载模式下应有的样子。'
+      : 'Device name is serial/JTAG — exactly what download mode looks like.'), 'dim');
   }
 
-  let powered = false;
-  try { powered = await iccPowerOn(); }
-  catch(e){ log('IccPowerOn: ' + e.message, 'warn'); }
-  boardStatus.powered = powered;
-  renderStatus(boardStatus);
-
-  // Auto-fetch: the user should not have to know which read command to
-  // press first. Everything here is read-only and safe to run unattended.
-  await refreshAll();
-
-  if (!powered){
-    showModal('mNoPowerTitle','mNoPowerBody','warn');
-  }
+  document.getElementById('devInfo').classList.remove('hidden');
+  document.getElementById('devInfo').innerHTML =
+    '<div class="kv"><span>VID:PID</span><span>'+hex(device.vendorId,4)+':'+hex(device.productId,4)+'</span></div>'+
+    '<div class="kv"><span>'+t('connected')+'</span><span>'+(device.productName||'?')+'</span></div>';
+  document.getElementById('btnDiag').disabled = false;
+  document.getElementById('btnDisconnect').disabled = false;
+  updateFlashGate();
 }
 
-async function pickInterface(){
-  // Prefer CCID (0x0B), fall back to vendor-specific rescue (0xFF).
-  const want = [0x0B, 0xFF];
-  for (const cls of want){
-    for (const cfg of device.configurations){
-      for (const intf of cfg.interfaces){
-        for (const alt of intf.alternates){
-          if (alt.interfaceClass !== cls) continue;
-          const ein = alt.endpoints.find(e=>e.direction==='in' && e.type==='bulk');
-          const eout= alt.endpoints.find(e=>e.direction==='out'&& e.type==='bulk');
-          if (!ein || !eout) continue;
-          try {
-            await device.claimInterface(intf.interfaceNumber);
-            iface = intf.interfaceNumber; epIn = ein.endpointNumber; epOut = eout.endpointNumber;
-            log(t('willUse', {n:intf.interfaceNumber, c:cls.toString(16)}),'ok');
-            log('  IN=0x'+epIn.toString(16)+' OUT=0x'+epOut.toString(16),'dim');
-            return true;
-          } catch(e){
-            log('claim interface #'+intf.interfaceNumber+' failed: '+e.message,'warn');
-          }
-        }
-      }
+function diagnose(){
+  if (!device){ log(t('noDevice'),'warn'); return; }
+  log(t('diagTitle'),'dim');
+  const ifaces = (device.configuration && device.configuration.interfaces) || [];
+  for (const iface of ifaces){
+    const alt = iface.alternates[0]; if (!alt) continue;
+    log(t('intfLine',{n:iface.interfaceNumber, c:hex(alt.interfaceClass),
+                      s:hex(alt.interfaceSubclass), p:hex(alt.interfaceProtocol)})
+        + '  ' + (CLASSNAME[alt.interfaceClass]||''), 'dim');
+    if (PROTECTED.has(alt.interfaceClass)) log(t('blockedLine'),'warn');
+    for (const ep of alt.endpoints){
+      log(t('epLine',{a:hex(ep.endpointNumber), d:ep.direction, t:ep.type}),'dim');
     }
   }
-  log(t('noIntf'),'err');
-  log(t('hint'),'dim');
-  return false;
-}
-
-function showDevInfo(){
-  const el = document.getElementById('devInfo');
-  el.classList.remove('hidden');
-  el.innerHTML =
-    '<div class="kv"><span>VID:PID</span><span>0x'+device.vendorId.toString(16).padStart(4,'0')+
-    ':0x'+device.productId.toString(16).padStart(4,'0')+'</span></div>'+
-    '<div class="kv"><span>interface</span><span>#'+iface+'</span></div>'+
-    '<div class="kv"><span>endpoints</span><span>IN 0x'+epIn.toString(16)+' / OUT 0x'+epOut.toString(16)+'</span></div>';
-}
-
-function resetUi(){
-  device=null; iface=null; epIn=null; epOut=null; currentPhy=null; boardStatus={};
-  document.getElementById('btnDiag').disabled = true;
-  document.getElementById('btnPowerOn').disabled = true;
-  document.getElementById('btnDisconnect').disabled = true;
-  setGated(false);
-  document.getElementById('devInfo').classList.add('hidden');
-  document.getElementById('devStatus').innerHTML = '';
-  document.getElementById('confirmText').dispatchEvent(new Event('input'));
 }
 
 async function disconnect(){
-  try { if (device) await device.close(); } catch(e){}
-  log('closed','dim'); resetUi();
+  if (device){
+    try { if (ifaceNum!=null) await device.releaseInterface(ifaceNum); } catch(e){}
+    try { await device.close(); } catch(e){}
+  }
+  resetUi(); log(t('disconnected'),'dim');
+}
+function resetUi(){
+  device=null; epIn=epOut=ifaceNum=null;
+  document.getElementById('devInfo').classList.add('hidden');
+  document.getElementById('btnDiag').disabled = true;
+  document.getElementById('btnDisconnect').disabled = true;
+  updateFlashGate();
+}
+function updateFlashGate(){
+  document.getElementById('btnFlash').disabled = !(device && fwReady);
 }
 
-async function manualPowerOn(){
-  if (!device){ log(t('noDevice'),'warn'); return; }
-  try { await iccPowerOn(); } catch(e){ log('IccPowerOn: '+e.message,'err'); }
+/* --------------------------- SLIP + ROM protocol --------------------------- */
+const SLIP_END=0xC0, SLIP_ESC=0xDB, SLIP_ESC_END=0xDC, SLIP_ESC_ESC=0xDD;
+const OP_FLASH_BEGIN=0x02, OP_FLASH_DATA=0x03, OP_FLASH_END=0x04,
+      OP_SYNC=0x08, OP_SPI_ATTACH=0x0D;
+const CHECKSUM_MAGIC=0xEF;
+
+function slipEncode(bytes){
+  const out=[SLIP_END];
+  for (const b of bytes){
+    if (b===SLIP_END) out.push(SLIP_ESC, SLIP_ESC_END);
+    else if (b===SLIP_ESC) out.push(SLIP_ESC, SLIP_ESC_ESC);
+    else out.push(b);
+  }
+  out.push(SLIP_END);
+  return new Uint8Array(out);
+}
+/* Returns {payload, consumed} or null when the frame is incomplete.
+   The escape handling restores the ORIGINAL byte: 0xDB 0xDC means 0xC0 and
+   0xDB 0xDD means 0xDB. Appending the token itself silently corrupts every
+   escaped byte in the frame. */
+function slipDecode(buf){
+  let start=-1;
+  for (let i=0;i<buf.length;i++) if (buf[i]===SLIP_END){ start=i; break; }
+  if (start<0) return null;
+  const out=[];
+  let i=start+1;
+  while (i<buf.length){
+    const b=buf[i];
+    if (b===SLIP_END) return {payload:new Uint8Array(out), consumed:i+1};
+    if (b===SLIP_ESC){
+      if (i+1>=buf.length) return null;
+      const nxt=buf[i+1];
+      if (nxt===SLIP_ESC_END) out.push(SLIP_END);
+      else if (nxt===SLIP_ESC_ESC) out.push(SLIP_ESC);
+      else out.push(nxt);
+      i+=2; continue;
+    }
+    out.push(b); i++;
+  }
+  return null;
+}
+function romChecksum(data, state){
+  state = (state===undefined ? CHECKSUM_MAGIC : state) & 0x3FFFFFFF;
+  const full = data.length - (data.length % 4);
+  const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  for (let i=0;i<full;i+=4) state ^= (dv.getUint32(i,true) & 0x3FFFFFFF);
+  const tail = data.length - full;
+  if (tail){
+    let w=0;
+    for (let i=0;i<tail;i++) w |= (data[full+i] << (8*i));
+    state ^= (w & 0x3FFFFFFF);
+  }
+  return state;
+}
+function packet(op, data, checksum){
+  if (checksum===undefined) checksum = romChecksum(data);
+  const p = new Uint8Array(8 + data.length);
+  const dv = new DataView(p.buffer);
+  dv.setUint8(0, 0x00);        // direction: request
+  dv.setUint8(1, op);
+  dv.setUint16(2, data.length, true);
+  dv.setUint32(4, checksum, true);
+  p.set(data, 8);
+  return p;
 }
 
-async function diagnose(){
-  if (!device){ log(t('noDevice'),'warn'); return; }
-  log(t('diagTitle'),'dim');
-  for (const cfg of device.configurations){
-    for (const intf of cfg.interfaces){
-      for (const alt of intf.alternates){
-        log(t('intfLine',{n:intf.interfaceNumber,
-          c:alt.interfaceClass.toString(16).padStart(2,'0'),
-          s:alt.interfaceSubclass.toString(16).padStart(2,'0'),
-          p:alt.interfaceProtocol.toString(16).padStart(2,'0')}),'dim');
-        (alt.endpoints||[]).forEach(e=>{
-          log(t('epLine',{a:e.endpointNumber.toString(16).padStart(2,'0'),
-                          d:e.direction, t:e.type}),'dim');
-        });
-      }
+class EspLoader {
+  constructor(timeout){ this.timeout = timeout || 3000; this.buf = new Uint8Array(0); }
+
+  async write(data){
+    // The bulk endpoint is 64 bytes; longer transfers stall.
+    for (let i=0;i<data.length;i+=64){
+      const chunk = data.slice(i, i+64);
+      await device.transferOut(epOut, chunk);
     }
   }
-}
-
-/* ------------------------------- CCID transport ------------------------------- */
-function ccidFrame(apdu){
-  const hdr = new Uint8Array(10);
-  hdr[0] = 0x6F;                      // PC_to_RDR_XfrBlock
-  const len = apdu.length;
-  hdr[1]=len&0xFF; hdr[2]=(len>>8)&0xFF; hdr[3]=(len>>16)&0xFF; hdr[4]=(len>>24)&0xFF;
-  hdr[5] = 0x00;                      // bSlot
-  hdr[6] = seq & 0xFF;                // bSeq
-  hdr[7] = 0x00; hdr[8] = 0x00; hdr[9] = 0x00;  // bBWI / reserved
-  const out = new Uint8Array(10 + len);
-  out.set(hdr,0); out.set(apdu,10);
-  return out;
-}
-
-/* Raised when bStatus reports the ICC is not powered/active yet.
-   The caller reacts by issuing IccPowerOn and retrying. */
-class CcidNotPowered extends Error {
-  constructor(m){ super(m); this.needPowerOn = true; }
-}
-
-/* ------------------------------------------------------------------
-   WebUSB has no timeout: transferIn() on a silent endpoint stays pending
-   forever, which used to freeze the whole connect flow with all buttons
-   greyed out and no board status. Every bulk transfer now goes through
-   this wrapper so a mute device produces an error instead of a hang.
-   ------------------------------------------------------------------ */
-const USB_TIMEOUT_MS = 2500;
-class UsbTimeout extends Error {
-  constructor(what){ super(what); this.isTimeout = true; }
-}
-function withTimeout(promise, what){
-  let timer;
-  return Promise.race([
-    promise,
-    new Promise((_, rej)=>{ timer = setTimeout(()=>rej(new UsbTimeout(what)), USB_TIMEOUT_MS); })
-  ]).finally(()=>clearTimeout(timer));
-}
-
-async function usbOut(ep, data){
-  const r = await withTimeout(device.transferOut(ep, data), 'transferOut');
-  if (r.status !== 'ok') throw new Error('transferOut: ' + r.status);
-  return r;
-}
-async function usbIn(ep, len){
-  const r = await withTimeout(device.transferIn(ep, len), 'transferIn');
-  if (r.status !== 'ok') throw new Error('transferIn: ' + r.status);
-  return r;
-}
-
-/* PC_to_RDR_IccPowerOn (0x62) — must precede any XfrBlock, otherwise the
-   device answers bmICCStatus=1 ("present but inactive"). */
-async function iccPowerOn(){
-  if (!device) throw new Error(t('noDevice'));
-  seq = (seq + 1) & 0xFF;
-  const f = new Uint8Array(10);
-  f[0] = 0x62;          // PC_to_RDR_IccPowerOn
-  f[5] = 0x00;          // bSlot
-  f[6] = seq & 0xFF;    // bSeq
-  f[7] = 0x00;          // bPowerSelect: automatic
-  log('>> IccPowerOn ' + hex(f), 'dim');
-
-  const res = await usbOut(epOut, f);
-  if (res.status !== 'ok') throw new Error('transferOut: ' + res.status);
-  const rd = await usbIn(epIn, 271);
-  if (rd.status !== 'ok') throw new Error('transferIn: ' + rd.status);
-
-  const buf = new Uint8Array(rd.data.buffer);
-  log('<< ' + hex(buf), 'dim');
-  if (buf.length < 10) throw new Error('short power-on response');
-  if (buf[0] !== 0x80) throw new Error('unexpected msgType 0x'+buf[0].toString(16)+
-                                       ' (power-on should answer RDR_to_PC_DataBlock 0x80)');
-  const bmIcc = buf[7] & 0x03;
-  const atr = buf.slice(10);
-  log(t('powerOnOk') + ' bmICCStatus=' + bmIcc + ' ATR=' + hex(atr), bmIcc===0 ? 'ok' : 'warn');
-  return bmIcc === 0;
-}
-
-async function ccidExchange(apdu){
-  if (!device){ throw new Error(t('readFirst')); }
-  seq = (seq + 1) & 0xFF;
-  const frame = ccidFrame(apdu);
-  log('>> ' + hex(frame), 'dim');
-
-  const res = await usbOut(epOut, frame);
-  if (res.status !== 'ok') throw new Error('transferOut: ' + res.status);
-
-  const rd = await usbIn(epIn, 271);
-  if (rd.status !== 'ok') throw new Error('transferIn: ' + rd.status);
-  const buf = new Uint8Array(rd.data.buffer);
-  log('<< ' + hex(buf), 'dim');
-
-  if (buf.length < 10) throw new Error('short CCID response');
-  if (buf[0] !== 0x80) throw new Error('unexpected CCID msgType 0x'+buf[0].toString(16));
-
-  const bStatus = buf[7], bError = buf[8];
-  const bmIcc = bStatus & 0x03;          // 0 = active, 1 = inactive, 2 = absent
-  const bmCmd = (bStatus >> 6) & 0x03;   // 0 = ok,   1 = failed,     2 = time ext
-
-  if (bmIcc !== 0){
-    throw new CcidNotPowered(t('errNotPowered') +
-      ' bmICCStatus=' + bmIcc + ' (bStatus=0x' + bStatus.toString(16) + ')');
+  async readChunk(ms){
+    const r = await device.transferIn(epIn, 64);
+    if (r.status !== 'ok') throw new Error('transfer status ' + r.status);
+    return new Uint8Array(r.data.buffer || r.data);
   }
-  if (bmCmd === 1){
-    throw new Error(t('swError') + ' bmCmdStatus=1 bError=0x' + bError.toString(16));
+  concat(a,b){ const c=new Uint8Array(a.length+b.length); c.set(a,0); c.set(b,a.length); return c; }
+
+  async readFrame(timeout){
+    const deadline = Date.now() + (timeout || this.timeout);
+    while (true){
+      const f = slipDecode(this.buf);
+      if (f){ this.buf = this.buf.slice(f.consumed); return f.payload; }
+      if (Date.now() > deadline) throw new Error(t('espTimeout'));
+      const chunk = await this.readChunk(Math.max(200, deadline - Date.now()));
+      if (chunk && chunk.length) this.buf = this.concat(this.buf, chunk);
+    }
   }
-  if (bmCmd === 2){
-    throw new Error('time extension requested (unsupported)');
+  async sync(attempts){
+    attempts = attempts || 5;
+    const payload = new Uint8Array(40);
+    const dv = new DataView(payload.buffer);
+    dv.setUint32(0, 0, true);
+    payload.set([0x07,0x07,0x12,0x20], 4);
+    payload.fill(0x55, 8);
+    for (let i=0;i<attempts;i++){
+      try {
+        await this.write(slipEncode(packet(OP_SYNC, payload)));
+        const resp = await this.readFrame(500);
+        if (resp && resp.length && resp[0] === 0x01) return true;
+      } catch(e){ /* retry */ }
+    }
+    return false;
   }
-  return buf.slice(10);
+  async command(op, data, timeout){
+    await this.write(slipEncode(packet(op, data)));
+    const resp = await this.readFrame(timeout);
+    if (resp.length < 8) throw new Error(t('espShort'));
+    const dv = new DataView(resp.buffer, resp.byteOffset, resp.byteLength);
+    const direction = resp[0], rOp = resp[1];
+    const size = dv.getUint16(2, true);
+    const value = dv.getUint32(4, true);
+    if (direction !== 0x01 || rOp !== op) throw new Error(t('espMismatch'));
+    const status = (resp.length > 8 + size) ? resp[8 + size] : 0;
+    if (status) throw new Error(t('espStatus',{code:status}));
+    return {value, body: resp.slice(8, 8+size)};
+  }
+  async flash(image, offset, onProgress){
+    const BLOCK = 0x4000;
+    const total = image.length;
+    const blocks = Math.ceil(total / BLOCK);
+    const u32 = v => { const b=new Uint8Array(4); new DataView(b.buffer).setUint32(0,v,true); return b; };
+    const cat = arrs => { let n=0; for(const a of arrs) n+=a.length;
+      const o=new Uint8Array(n); let p=0; for(const a of arrs){o.set(a,p);p+=a.length;} return o; };
+
+    try { await this.command(OP_SPI_ATTACH, u32(0), 4000); }
+    catch(e){ log(t('spiAttachNote') + ' (' + e.message + ')','warn'); }
+
+    await this.command(OP_FLASH_BEGIN,
+      cat([u32(total), u32(blocks), u32(BLOCK), u32(offset)]), 20000);
+
+    let seq = 0;
+    for (let i=0;i<blocks;i++){
+      const chunk = image.slice(i*BLOCK, (i+1)*BLOCK);
+      const padded = new Uint8Array(BLOCK); padded.fill(0xFF); padded.set(chunk, 0);
+      await this.command(OP_FLASH_DATA, cat([u32(BLOCK), u32(seq), padded]), 8000);
+      seq++;
+      if (onProgress) onProgress(i+1, blocks);
+    }
+    await this.command(OP_FLASH_END, u32(1), 4000);
+    return total;
+  }
 }
 
-/* Send an APDU, following ISO 7816-4 chaining via 0x61 (GetResponse). */
-async function sendApdu(apdu){
-  let resp;
+/* --------------------------- file picking --------------------------- */
+function sniff(bytes){
+  if (bytes.length >= 4){
+    // UF2 magic: "UF2\n" at offset 0, plus the second magic near the end.
+    if (bytes[0]===0x55 && bytes[1]===0x46 && bytes[2]===0x32 && bytes[3]===0x0A)
+      return 'uf2';
+  }
+  if (bytes.length >= 2 && bytes[0]===0x1F && bytes[1]===0x8B) return 'gzip';
+  if (bytes.length >= 2 && bytes[0]===0x50 && bytes[1]===0x4B) return 'zip';
+  const head = String.fromCharCode.apply(null, bytes.slice(0,16)).toLowerCase();
+  if (head.includes('<!doctype') || head.includes('<html')) return 'html';
+  if (bytes.length && bytes[0]===0xE9) return 'esp';
+  return 'unknown';
+}
+async function onFile(ev){
+  const f = ev.target.files && ev.target.files[0];
+  if (!f) return;
+  const buf = new Uint8Array(await f.arrayBuffer());
+  fwData = buf;
+  const kind = sniff(buf);
+  fwReady = (kind === 'esp');
+  const out = document.getElementById('fileOut');
+  let cls = 'lv-warn', msg;
+  if (kind==='esp'){      cls='lv-ok'; msg=t('sniffEsp'); }
+  else if (kind==='uf2'){ msg=t('sniffUf2') + '\n' + t('sniffUf2Hint'); }
+  else if (kind==='zip'){ msg=t('sniffZip'); }
+  else if (kind==='gzip'){ msg=t('sniffGzip'); }
+  else if (kind==='html'){ msg=t('sniffHtml'); }
+  else { msg=t('sniffUnknown'); }
+  out.innerHTML =
+    '<div class="kv"><span>'+f.name+'</span><span>'+(buf.length/1024).toFixed(1)+' KB</span></div>'+
+    '<div class="'+cls+'" style="margin-top:8px;font-size:13px;white-space:pre-wrap">'+msg+'</div>';
+  log(t('filePicked') + ': ' + f.name + ' — ' + t('fileSize') + ' ' + buf.length + ' B',
+      fwReady ? 'ok' : 'warn');
+  if (!fwReady) log(msg.replace(/\n/g,' '), 'warn');
+  document.getElementById('fileLabel').textContent = f.name;
+  updateFlashGate();
+}
+
+/* --------------------------- flash --------------------------- */
+async function doFlash(){
+  if (!device){ log(t('noDevice'),'warn'); return; }
+  if (!fwReady){ log(t('noFile'),'warn'); return; }
+  const offRaw = document.getElementById('offset').value.trim() || '0';
+  const offset = parseInt(offRaw, 16);
+  if (isNaN(offset) || offset < 0){ log('bad offset','err'); return; }
+
+  const btn = document.getElementById('btnFlash');
+  const bar = document.getElementById('bar');
+  const inner = document.getElementById('barInner');
+  const ptext = document.getElementById('progText');
+  btn.disabled = true;
+  bar.classList.remove('hidden'); inner.style.width = '0%';
+  log(t('flashing'),'dim');
+
   try {
-    resp = await ccidExchange(apdu);
+    const loader = new EspLoader(3000);
+    log(t('syncing'),'dim');
+    if (!await loader.sync()) { showModal('mWrongModeTitle','mWrongModeBody','err'); throw new Error('sync failed'); }
+    log('sync ok','ok');
+    const n = await loader.flash(fwData, offset, (i, total)=>{
+      inner.style.width = Math.round(i*100/total) + '%';
+      ptext.textContent = t('flashProgress',{i, n:total});
+      if (i===total || i%16===0) log(t('flashProgress',{i,n:total}),'dim');
+    });
+    inner.style.width = '100%';
+    log(t('flashOk',{n}),'ok');
+    showRawModal(t('flashOkTitle'), t('flashOk',{n}), 'ok');
   } catch(e){
-    // A timeout means the device is mute - retrying after a power-on would
-    // just burn another timeout, so let it surface immediately.
-    if (e && e.isTimeout) throw e;
-    if (e && e.needPowerOn){
-      log(t('autoPowerOn'), 'warn');
-      await iccPowerOn();
-      resp = await ccidExchange(apdu);       // one retry after power-on
-    } else throw e;
-  }
-  if (resp.length < 2) throw new Error('truncated APDU response');
-  let sw = (resp[resp.length-2] << 8) | resp[resp.length-1];
-  let data = resp.slice(0, resp.length-2);
-
-  while ((sw & 0xFF00) === 0x6100 || sw === 0x6100){
-    const ne = sw & 0x00FF;
-    const get = [0x00,0xC0,0x00,0x00, ne ? ne : 0x00];
-    resp = await ccidExchange(get);
-    if (resp.length < 2) break;
-    sw = (resp[resp.length-2] << 8) | resp[resp.length-1];
-    data = concat(data, resp.slice(0, resp.length-2));
-    if (sw === 0x9000) break;
-  }
-  return { data: data, sw: sw };
-}
-function concat(a,b){ const o=new Uint8Array(a.length+b.length); o.set(a,0); o.set(b,a.length); return o; }
-
-async function selectApplet(){
-  const r = await sendApdu(AID_SELECT);
-  log('SELECT applet -> SW=0x' + r.sw.toString(16), r.sw===SW_OK?'dim':'warn');
-  return r;
-}
-
-/* ------------------------------- commands ------------------------------- */
-async function readPhy(quiet){
-  if (!device){ log(t('readFirst'),'warn'); return null; }
-  try{
-    await selectApplet();
-    // 80 1E P1=01 (phy read), extended Le = 256
-    const r = await sendApdu([0x80,0x1E,0x01,0x00,0x00,0x01,0x00]);
-    if (r.sw !== SW_OK){ log(t('swError')+' SW=0x'+r.sw.toString(16),'err'); return null; }
-    currentPhy = parsePhy(r.data);
-    if (!quiet){
-      log(t('okPhy'),'ok');
-      showModal('mPhyTitle','mPhyBody','ok');
-    }
-    renderPhy(currentPhy);
-    if (currentPhy.usb_product) boardStatus.product = currentPhy.usb_product;
-    renderStatus(boardStatus);
-    return currentPhy;
-  }catch(e){
-    log('readPhy: '+e.message,'err');
-    if (!quiet) showModal('mFailTitle','mPhyFailBody','err');
-    return null;
+    log('flash failed: ' + e.message, 'err');
+    showModal('mFlashFailTitle','mFlashFailBody','err');
+  } finally {
+    btn.disabled = !(device && fwReady);
   }
 }
 
-async function readSecure(quiet){
-  if (!device){ log(t('readFirst'),'warn'); return null; }
-  try{
-    await selectApplet();
-    const r = await sendApdu([0x80,0x1E,0x03,0x00,0x00,0x01,0x00]);
-    if (r.sw !== SW_OK){ log(t('swError')+' SW=0x'+r.sw.toString(16),'err'); return null; }
-    if (!r.data || r.data.length < 2){
-      log(t('secUnavailable'),'warn');
-      boardStatus.secure = 'unavailable';
-      document.getElementById('secOut').innerHTML =
-        '<div class="kv"><span>secure</span><span>'+t('secUnavailable')+'</span></div>';
-      // Important enough to interrupt: on ESP32-S3 this usually means the
-      // feature is not implemented, and forcing the write is a bad idea.
-      if (!quiet) showModal('mSecTitle','mSecUnavailBody','warn');
-      return null;
-    }
-    const enabled = r.data[0] !== 0, locked = r.data[1] !== 0, bootkey = r.data[2];
-    log(t('okSec')+' enabled='+enabled+' locked='+locked+' bootKey='+bootkey,'ok');
-    boardStatus.secure = enabled ? 'enabled' : 'off';
-    boardStatus.secureLocked = locked;
-    document.getElementById('secOut').innerHTML =
-      '<div class="kv"><span>secure boot</span><span>'+(enabled?'ENABLED':'off')+'</span></div>'+
-      '<div class="kv"><span>secure lock</span><span>'+(locked?'LOCKED':'off')+'</span></div>'+
-      '<div class="kv"><span>boot key slot</span><span>'+bootkey+'</span></div>';
-    if (!quiet && (enabled || locked)) showModal('mSecTitle','mSecOnBody','warn');
-    return {enabled, locked, bootkey};
-  }catch(e){
-    log('readSecure: '+e.message,'err');
-    return null;
-  }
+/* --------------------------- secure boot info --------------------------- */
+function renderSecureInfo(){
+  const el = document.getElementById('secureInfo');
+  el.innerHTML =
+    '<div class="kv"><span>CCID (0x0B)</span><span style="color:#fca5a5">⛔ ' +
+    (LANG==='zh' ? '浏览器屏蔽' : 'blocked by browser') + '</span></div>';
 }
 
-async function readFlash(quiet){
-  if (!device){ log(t('readFirst'),'warn'); return null; }
-  try{
-    await selectApplet();
-    const r = await sendApdu([0x80,0x1E,0x02,0x00,0x00,0x01,0x00]);
-    if (r.sw !== SW_OK){ log(t('swError')+' SW=0x'+r.sw.toString(16),'err'); return null; }
-    const d = r.data;
-    const u32 = o => (d[o]<<24)|(d[o+1]<<16)|(d[o+2]<<8)|d[o+3];
-    const free=u32(0), used=u32(4), total=u32(8), files=u32(12);
-    log('flash: free='+free+' used='+used+' total='+total+' files='+files,'ok');
-    boardStatus.flash = {free, used, total, files};
-    document.getElementById('flashOut').innerHTML =
-      '<div class="kv"><span>'+t('stFlashUsed')+'</span><span>'+used+' / '+total+' KB</span></div>'+
-      '<div class="kv"><span>'+t('stFlashFiles')+'</span><span>'+files+'</span></div>';
-    return {free, used, total, files};
-  }catch(e){ log('readFlash: '+e.message,'err'); return null; }
-}
-
-function parsePhy(d){
-  const o = {}; let p = 0;
-  while (p + 2 <= d.length){
-    const tag = d[p], len = d[p+1]; p += 2;
-    if (p + len > d.length) break;
-    const v = d.slice(p, p+len); p += len;
-    switch(tag){
-      case 0x00: if(len===4){ o.vid = (v[0]<<8)|v[1]; o.pid = (v[2]<<8)|v[3]; } break;
-      case 0x04: o.led_gpio = v[0]; break;
-      case 0x05: o.led_brightness = v[0]; break;
-      case 0x06: o.opts = (v[0]<<8)|v[1]; break;
-      case 0x08: o.up_btn = v[0]; break;
-      case 0x09: { let s=v; const z=s.indexOf(0); if(z>=0) s=s.slice(0,z);
-                   o.usb_product = String.fromCharCode.apply(null, s); break; }
-      case 0x0A: o.enabled_curves = (v[0]<<24)|(v[1]<<16)|(v[2]<<8)|v[3]; break;
-      case 0x0B: o.enabled_usb_itf = v[0]; break;
-      case 0x0C: o.led_driver = v[0]; break;
-    }
-  }
-  return o;
-}
-function hex4(n){ return '0x'+(n>>>0).toString(16).padStart(4,'0'); }
-function hex2s(n){ return (n&0xFF).toString(16).padStart(2,'0'); }
-
-function renderPhy(o){
-  const el = document.getElementById('phyOut');
-  const rows = [];
-  if (o.vid !== undefined) rows.push(['VID:PID', hex4(o.vid).slice(0,6)+':'+hex4(o.pid).slice(2)]);
-  if (o.usb_product !== undefined) rows.push(['product', o.usb_product]);
-  if (o.led_gpio !== undefined) rows.push(['led gpio', o.led_gpio]);
-  if (o.led_brightness !== undefined) rows.push(['brightness', o.led_brightness]);
-  if (o.led_driver !== undefined) rows.push(['led driver', o.led_driver]);
-  if (o.up_btn !== undefined) rows.push(['touch timeout', o.up_btn]);
-  if (o.opts !== undefined) rows.push(['opts', '0x'+o.opts.toString(16)]);
-  if (o.enabled_curves !== undefined) rows.push(['curves', '0x'+o.enabled_curves.toString(16)]);
-  if (o.enabled_usb_itf !== undefined) rows.push(['usb itf', '0x'+o.enabled_usb_itf.toString(16)]);
-  el.innerHTML = rows.map(r=>'<div class="kv"><span>'+r[0]+'</span><span>'+r[1]+'</span></div>').join('');
-}
-
-function loadCurrent(){
-  if (!currentPhy){ log('read PHY first','warn'); return; }
-  const o = currentPhy;
-  if (o.vid !== undefined) document.getElementById('vid').value = hex4(o.vid).slice(2);
-  if (o.pid !== undefined) document.getElementById('pid').value = hex4(o.pid).slice(2);
-  if (o.usb_product !== undefined) document.getElementById('product').value = o.usb_product;
-  if (o.led_gpio !== undefined) document.getElementById('ledGpio').value = o.led_gpio;
-  if (o.led_brightness !== undefined) document.getElementById('brightness').value = o.led_brightness;
-  if (o.up_btn !== undefined) document.getElementById('upBtn').value = o.up_btn;
-  if (o.led_driver !== undefined) document.getElementById('ledDriver').value = String(o.led_driver);
-  if (o.opts !== undefined){
-    document.getElementById('optDimm').checked    = !!(o.opts & 0x02);
-    document.getElementById('optSteady').checked  = !!(o.opts & 0x08);
-    document.getElementById('optWcid').checked    = !!(o.opts & 0x01);
-    document.getElementById('optNoPwrRst').checked= !!(o.opts & 0x04);
-  }
-  log('loaded current values','ok');
-}
-function applyYubikey(){
-  document.getElementById('vid').value = '1050';
-  document.getElementById('pid').value = '0407';
-  document.getElementById('product').value = 'yubico yubikey';
-  log('preset: YubiKey 5 (1050:0407), product="yubico yubikey"','ok');
-  log('note: the product string must be exactly "yubico yubikey" for Yubico Authenticator','dim');
-}
-
-function buildPhyTlv(){
-  const o = currentPhy || {};
-  const b = [];
-  const vid = hex2(document.getElementById('vid').value, o.vid);
-  const pid = hex2(document.getElementById('pid').value, o.pid);
-  if (vid !== undefined && pid !== undefined){
-    b.push(0x00, 4, (vid>>8)&0xFF, vid&0xFF, (pid>>8)&0xFF, pid&0xFF);
-  }
-  const lg = intOr(document.getElementById('ledGpio').value, o.led_gpio);
-  if (lg !== undefined) b.push(0x04, 1, lg & 0xFF);
-  const br = intOr(document.getElementById('brightness').value, o.led_brightness);
-  if (br !== undefined) b.push(0x05, 1, br & 0xFF);
-
-  // OPTS is always present (2 bytes, big-endian)
-  let opts = 0;
-  if (document.getElementById('optWcid').checked)    opts |= 0x01;
-  if (document.getElementById('optDimm').checked)    opts |= 0x02;
-  if (document.getElementById('optNoPwrRst').checked)opts |= 0x04;
-  if (document.getElementById('optSteady').checked)  opts |= 0x08;
-  b.push(0x06, 2, (opts>>8)&0xFF, opts&0xFF);
-
-  const ub = intOr(document.getElementById('upBtn').value, o.up_btn);
-  if (ub !== undefined) b.push(0x08, 1, ub & 0xFF);
-
-  const prod = document.getElementById('product').value;
-  if (prod && prod.trim()){
-    const s = Array.from(prod.trim()).map(c=>c.charCodeAt(0)&0xFF);
-    if (s.length <= 31){ b.push(0x09, s.length+1, ...s, 0x00); }
-    else { log('product name too long (max 31), skipped','warn'); }
-  }
-  if (o.enabled_curves !== undefined){
-    const c = o.enabled_curves;
-    b.push(0x0A, 4, (c>>>24)&0xFF, (c>>>16)&0xFF, (c>>>8)&0xFF, c&0xFF);
-  }
-  if (o.enabled_usb_itf !== undefined) b.push(0x0B, 1, o.enabled_usb_itf & 0xFF);
-  const ld = intOr(document.getElementById('ledDriver').value, o.led_driver);
-  if (ld !== undefined) b.push(0x0C, 1, ld & 0xFF);
-  return b;
-}
-
-async function writePhy(){
-  if (!device){ log(t('readFirst'),'warn'); return; }
-  try{
-    const tlv = buildPhyTlv();
-    log('TLV: ' + hex(tlv),'dim');
-    await selectApplet();
-    // 80 1C P1=01 (phy write), extended Lc
-    const hi = (tlv.length>>8)&0xFF, lo = tlv.length&0xFF;
-    const apdu = [0x80,0x1C,0x01,0x00,0x00,hi,lo].concat(tlv).concat([0x00,0x00]);
-    const r = await sendApdu(apdu);
-    if (r.sw !== SW_OK){ log(t('swError')+' SW=0x'+r.sw.toString(16),'err'); return; }
-    log(t('okWrite'),'ok');
-    log('unplug and replug the device, then verify with Yubico Authenticator','dim');
-  }catch(e){ log('writePhy: '+e.message,'err'); }
-}
-
-async function setSecureBoot(){
-  if (!device){ log(t('readFirst'),'warn'); return; }
-  if (!document.getElementById('chkUnderstand').checked ||
-      document.getElementById('confirmText').value.trim().toUpperCase() !== 'CONFIRM'){
-    log(t('needConfirm'),'warn'); return;
-  }
-  if (!confirm(LANG==='zh' ? '此操作永久不可逆，确定继续？\n开启后设备只能运行官方签名固件。'
-                           : 'This is PERMANENT. Continue?\nAfter this the device only runs officially signed firmware.')){
-    log('aborted by user','dim'); return;
-  }
-  try{
-    const slot = intOr(document.getElementById('slot').value, 0);
-    const lock = document.getElementById('chkLock').checked ? 1 : 0;
-    if (slot < 0 || slot > 15){ log('slot must be 0-15','err'); return; }
-    await selectApplet();
-    const apdu = [0x80,0x1C,0x02,0x00,0x00,0x00,0x02, slot&0xFF, lock].concat([0x00,0x00]);
-    const r = await sendApdu(apdu);
-    if (r.sw !== SW_OK){ log(t('swError')+' SW=0x'+r.sw.toString(16),'err'); return; }
-    log(t('okSecure',{slot:slot}),'ok');
-  }catch(e){ log('secureBoot: '+e.message,'err'); }
-}
-
-async function reboot(bootsel){
-  if (!device){ log(t('readFirst'),'warn'); return; }
-  try{
-    await selectApplet();
-    const apdu = [0x80,0x1F, bootsel?0x01:0x00, 0x00, 0x00, 0x00, 0x00];
-    const r = await sendApdu(apdu);
-    log(t('okReboot')+' SW=0x'+r.sw.toString(16),'ok');
-  }catch(e){ log('reboot: '+e.message + ' (device may already be rebooting)','warn'); }
-}
-
-/* ------------------------------- init ------------------------------- */
-/* The secure-boot button has two gates: a device must be connected AND the
-   CONFIRM handshake must be complete. Both are re-evaluated here. */
-function updateSecureGate(){
-  const hasDev = !!device;
-  const confirmed = document.getElementById('chkUnderstand').checked &&
-                    document.getElementById('confirmText').value.trim().toUpperCase()==='CONFIRM';
-  document.getElementById('btnSecure').disabled = !(hasDev && confirmed);
-}
-document.getElementById('confirmText').addEventListener('input', updateSecureGate);
-document.getElementById('chkUnderstand').addEventListener('change', updateSecureGate);
-
+/* --------------------------- boot --------------------------- */
 setLang('zh');
-setGated(false);
-// Belt and braces: the modal must start hidden even if the stylesheet fails
-// to load or someone edits the markup. Without this a stuck overlay would
-// swallow every tap on the page.
-closeModal();
-
-/* Fatal, page-wide problems pop up instead of hiding in the log. */
-if (!navigator.usb){
-  log(t('noWebUSB'),'err');
-  showModal('mNoUsbTitle','mNoUsbBody','err');
-} else if (!window.isSecureContext){
-  log(t('notSecure'),'err');
-  showModal('mNoHttpsTitle','mNoHttpsBody','err');
-} else {
-  log('WebUSB ready. ' + t('hintConnect'),'dim');
-}
+if (!navigator.usb) log(t('noWebUSB'),'err');
+else if (!window.isSecureContext) log(t('notSecure'),'err');
+renderSecureInfo();
+updateFlashGate();
+navigator.usb && navigator.usb.addEventListener('disconnect', ()=>{});
 </script>
 </body>
 </html>

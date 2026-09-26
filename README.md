@@ -18,7 +18,7 @@
 
 **升级可以直接覆盖安装，不需要先卸载**——所有版本都用同一个签名密钥构建。
 
-仓库里还有一个**网页版开光工具** `picokey-commissioner.html`，已通过 GitHub Pages 部署，
+仓库里还有一个**网页版刷写工具** `picokey-commissioner.html`，已通过 GitHub Pages 部署，
 用手机 Chrome 打开即可（WebUSB 要求 HTTPS，Pages 正好免费提供）：
 
 ```
@@ -26,6 +26,14 @@ https://ksksmnejs.github.io/PicoKey-Manager-Android/
 ```
 
 它由 `.github/workflows/static.yml` 自动部署，不需要任何操作。
+
+**它能做什么**：只做一件事——给处于下载模式的 ESP32-S2 / S3 刷入固件（走的是 esptool
+ROM 协议，不需要安装任何工具）。
+
+**它不能做什么**：无法改 VID/PID、无法开安全启动/安全锁，也无法读取运行中的设备信息。
+原因是 Chrome 从 67 起（CVE-2018-6125）就屏蔽了浏览器对智能卡（CCID）接口的访问，
+而 PicoKey 固件正常运行时用的正是 CCID——固件跑起来以后，浏览器根本看不到这块板子。
+这些操作请用安卓 App（它走 Android USB Host API，不受此限制）。
 
 ---
 
@@ -171,10 +179,13 @@ App 里有「固件刷写」页（扫描页底部进入），处理两种机制�
 - **RP2040 没有 OTP 保护**，flash 可被直接读出；需防物理提取请用 RP2350 或 ESP32-S3。
 - 三种固件（HSM / FIDO / OpenPGP）**不能共存**，切换需先刷 Pico Nuke 清空。
   建议按用途各用一块板子，而不是来回切换。
-- 签名密钥 `tools/debug.keystore.b64` **在仓库里是公开的**，这样每次自动构建都用同一把
-  密钥、升级不必卸载。代价是：任何人都能用它签出一个同包名的 APK。debug 密钥本就不是
-  安全边界（Android 官方设计如此），但如果你介意，可以把自己的密钥 base64 后存成仓库
-  Secret `ANDROID_KEYSTORE_BASE64`，它会优先生效、仓库里那把被忽略。
+- 签名密钥 `tools/debug.keystore.b64` 随仓库公开，因此每次自动构建的签名都一致、
+  升级可以直接覆盖安装。代价是任何人都能用它签出同包名的 APK——debug 密钥本就不是安全
+  边界（Android 官方设计如此）。
+
+  **下面这条只有自行构建这个 App 的人才用得上**，普通用户不必理会：想换成自己的密钥，
+  把密钥 base64 编码后存成仓库 Secret `ANDROID_KEYSTORE_BASE64`，它会优先生效、
+  仓库里那把被忽略。
 
 ---
 
