@@ -3,7 +3,7 @@
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B-green.svg)](https://www.android.com/)
 [![Hardware testing](https://img.shields.io/badge/Hardware%20testing-none%20yet-critical.svg)](#verification-status)
-[![Authored by](https://img.shields.io/badge/code%20by-AI-8A2BE2.svg)](#ai-generated-code)
+[![Authored by](https://img.shields.io/badge/code%20%26%20docs-AI%20generated-8A2BE2.svg)](#ai-generated-code)
 
 [简体中文](README.md) | English
 
@@ -23,6 +23,17 @@ latest one. Older versions stay on the same page so you can roll back; see
 **Updates install over the old one — no uninstall needed.** Every build is signed
 with the same key.
 
+There is also a **web commissioning tool**, `picokey-commissioner.html`, deployed
+through GitHub Pages — just open it in Chrome on your phone (WebUSB requires
+HTTPS, which Pages provides for free):
+
+```
+https://ksksmnejs.github.io/PicoKey-Manager-Android/
+```
+
+It is deployed automatically by `.github/workflows/static.yml`; nothing to do.
+
+
 ---
 
 ## AI-generated code
@@ -30,6 +41,15 @@ with the same key.
 **The code in this repository was written by AI and is not the work of the
 upstream firmware authors.** If something misbehaves, suspect this app first —
 not your board and not the firmware.
+
+**This documentation was written by AI too, and may contain errors.** Technical
+details here — USB IDs, chip differences, curve compatibility, Secure Boot
+support — were compiled from public sources and were not verified item by item.
+Where this file and the upstream firmware docs disagree, **upstream wins**.
+
+Spot something wrong? Please open an issue. For anything safety-relevant
+(writing PHY config, secure boot, flashing firmware) rely on the official
+firmware documentation and your board's own manual, not on this file alone.
 
 ---
 
@@ -122,7 +142,7 @@ Authenticator can manage the device).
 
 1. Connect the board with an **OTG adapter**. **Hold no buttons while powering
    up** — on some boards that goes straight into flashing mode, where it does not
-   appear as a PicoKey device and the app cannot talk to it.
+   appear as a firmware device and the app cannot talk to it.
 2. Open the app → **Scan USB devices**. Every available channel appears.
 3. Tap one to connect. Android shows a USB authorization dialog — **you must
    allow it** (asked only once; if denied, re-enable it in system settings).

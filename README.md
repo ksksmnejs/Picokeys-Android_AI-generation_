@@ -3,7 +3,7 @@
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B-green.svg)](https://www.android.com/)
 [![Hardware testing](https://img.shields.io/badge/%E7%9C%9F%E6%9C%BA%E9%AA%8C%E8%AF%81-%E6%9C%AA%E8%BF%9B%E8%A1%8C-critical.svg)](#验证状态)
-[![Authored by](https://img.shields.io/badge/%E4%BB%A3%E7%A0%81%E7%94%B1-AI%20%E7%BC%96%E5%86%99-8A2BE2.svg)](#ai-生成声明)
+[![Authored by](https://img.shields.io/badge/%E4%BB%A3%E7%A0%81%E4%B8%8E%E6%96%87%E6%A1%A3-AI%20%E7%94%9F%E6%88%90-8A2BE2.svg)](#ai-生成声明)
 
 简体中文 | [English](README.en.md)
 
@@ -18,12 +18,28 @@
 
 **升级可以直接覆盖安装，不需要先卸载**——所有版本都用同一个签名密钥构建。
 
+仓库里还有一个**网页版开光工具** `picokey-commissioner.html`，已通过 GitHub Pages 部署，
+用手机 Chrome 打开即可（WebUSB 要求 HTTPS，Pages 正好免费提供）：
+
+```
+https://ksksmnejs.github.io/PicoKey-Manager-Android/
+```
+
+它由 `.github/workflows/static.yml` 自动部署，不需要任何操作。
+
 ---
 
 ## AI 生成声明
 
 **本仓库的代码由 AI 编写，并非固件上游作者的作品。** 设备出现异常时，
 请优先怀疑这个 App，而不是怀疑你的板子或固件。
+
+**这份文档同样由 AI 撰写，可能存在错误。** 文中的技术细节——USB ID、芯片差异、
+曲线兼容性、Secure Boot 支持情况——来自公开资料整理，未经逐项实测核对。
+与固件官方文档或上游仓库冲突时，**以上游为准**。
+
+如果发现错漏，欢迎开 Issue 指出；涉及安全的操作（写入 PHY、安全启动、刷写固件）
+请以固件官方文档和你的板子说明书为准，不要只依赖本文。
 
 ---
 
@@ -104,7 +120,7 @@ OTP 熔丝烧错了是物理级不可逆的。
 ## 使用方法
 
 1. 用 **OTG 转接线**连接开发板。**上电时不要按住任何按键**——部分板子按键上电会
-   直接进入刷机模式，此时它不作为 PicoKey 设备出现，App 连不上。
+   直接进入刷机模式，此时它不作为固件设备出现，App 连不上。
 2. 打开 App → **扫描 USB 设备**，列表里会出现每个可用通道。
 3. 点一个连接。手机会弹 USB 授权对话框，**必须点允许**（只弹一次；拒了要去系统设置里
    重新开启）。
