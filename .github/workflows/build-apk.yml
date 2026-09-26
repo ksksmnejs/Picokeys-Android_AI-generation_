@@ -37,6 +37,20 @@ on:
         type: boolean
         default: false
 
+# One build at a time, and a new one cancels whatever is still running.
+#
+# Without this, every extra tap of "Run workflow" queues another 15-40 minute
+# job behind the current one - the queue fills up, each run burns Actions
+# minutes producing an APK nobody will use, and the build that finally finishes
+# is not necessarily the one with the latest code. Cancelling the in-progress
+# run means pressing Run twice is safe: the second press replaces the first.
+concurrency:
+  group: build-apk
+  # Not ${{ github.ref }}: this workflow is manual-only and always builds
+  # main, so a fixed group is exactly right. Per-ref groups would let runs on
+  # different branches pile up behind each other again.
+  cancel-in-progress: true
+
 # Needed so GITHUB_TOKEN may create a release and upload assets. Without this
 # the release step fails with "Resource not accessible by integration".
 permissions:
