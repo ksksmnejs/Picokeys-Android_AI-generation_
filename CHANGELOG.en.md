@@ -47,6 +47,8 @@ If the build fails the job stops early and no version number is consumed.
   (Storage Access Framework). The app's own directory browser was limited by
   scoped storage and listed only a few third-party app folders, so firmware
   stored anywhere else was invisible
+- Fixed "could not read the selected file": reads via a file descriptor now,
+  no longer relying on Java byte arrays; failures show the actual reason
 
 ### Changed
 
