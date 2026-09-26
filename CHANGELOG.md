@@ -49,6 +49,9 @@ Run workflow 时的可选开关：
   `polhenarejos/pico-fido` Releases 里的固件，按芯片分类并只显示每块板最新的稳定版，
   选中后自动下载（需要 `INTERNET` 权限）
 - 不再把开发板称作 PicoKey，改为"开发板"
+- 构建使用固定签名密钥（`tools/debug.keystore.b64`），升级 APK 可直接覆盖安装，
+  不再需要卸载重装；可用仓库 Secret `ANDROID_KEYSTORE_BASE64` 覆盖
+- 新增并发控制：再点 Run workflow 会取消正在跑的旧任务，队列不再堆积
 - 文档与界面不再描述进入下载模式的按键手势（不同板子方式不同）
 
 ### 修复

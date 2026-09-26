@@ -55,6 +55,11 @@ If the build fails the job stops early and no version number is consumed.
   grouped by chip with only the newest stable image per board, and downloads
   the one you pick (needs the `INTERNET` permission)
 - The board is no longer called "PicoKey" - it is a "board" / "development board"
+- Builds use a fixed signing key (`tools/debug.keystore.b64`), so updating the
+  APK installs over the old one instead of demanding an uninstall; override it
+  with the repository secret `ANDROID_KEYSTORE_BASE64`
+- Added concurrency control: pressing Run workflow again cancels the in-progress
+  run instead of piling up a queue
 - Docs and UI no longer describe button gestures for entering download mode
   (they differ per board)
 

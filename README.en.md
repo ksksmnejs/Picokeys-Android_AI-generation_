@@ -20,6 +20,9 @@ Supported chips: **RP2040, RP2350, ESP32-S2, ESP32-S3** — see
 latest one. Older versions stay on the same page so you can roll back; see
 [CHANGELOG.md](CHANGELOG.md) for what changed in each.
 
+**Updates install over the old one — no uninstall needed.** Every build is signed
+with the same key.
+
 ---
 
 ## AI-generated code
@@ -189,6 +192,13 @@ run, identify the file without flashing and read the log at each step.
 - The three firmwares (HSM / FIDO / OpenPGP) **cannot coexist**; switching
   requires flashing Pico Nuke to wipe first. Dedicate one board per purpose
   rather than switching back and forth.
+- The signing key `tools/debug.keystore.b64` is **public in this repo** so that
+  every automated build signs identically and updates install cleanly. The
+  trade-off: anyone could sign an APK with the same package name using it. A
+  debug key is not a security boundary by design (that is how Android works),
+  but if you would rather not, store your own key base64-encoded as the
+  repository secret `ANDROID_KEYSTORE_BASE64` — it takes priority and the
+  committed one is ignored.
 
 ---
 
