@@ -244,6 +244,10 @@ STRINGS.update({
         "zh": "读取所选文件失败。",
         "en": "Could not read the selected file.",
     },
+    "fw_pick_empty": {
+        "zh": "这个文件是空的，可能不是固件。",
+        "en": "That file is empty - it is probably not firmware.",
+    },
     "fw_no_file_manager": {
         "zh": "没找到文件管理器，无法选择文件。",
         "en": "No file manager found, cannot pick a file.",
