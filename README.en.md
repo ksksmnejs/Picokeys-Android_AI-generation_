@@ -22,7 +22,8 @@ firmware.
 
 **Download**: a prebuilt APK is published on the
 [Releases](../../releases) page of this repository — grab the latest one and
-install it.
+install it. **Earlier versions are kept on the same page**, so you can always
+roll back (see [Version history](#version-history)).
 
 Every run of the **Build Android APK** workflow publishes the freshly built APK
 to Releases automatically, with **bilingual (zh/en) release notes** carrying the
@@ -62,6 +63,39 @@ The device protocol itself — CCID framing, APDUs, the PHY TLV block, CTAPHID �
 is pure Python and was carried over unchanged. Only the byte pipe underneath
 was replaced. Both the CCID and the FIDO HID channel are implemented and
 listed automatically on scan.
+
+## Version history
+
+Every publish now **creates a new release instead of overwriting the old one**,
+so if an update misbehaves you can grab any earlier version from the Releases
+page.
+
+| Version | Main changes |
+| --- | --- |
+| **v0.2.0** | New **Flash firmware** page (UF2 sniffing + ESP32 ROM serial protocol); fixed the status bar covering the top row; fixed long English button labels being clipped; docs now cover the RP2040/RP2350/ESP32-S2/S3 differences; release notes are bilingual (zh/en) |
+| **v0.1.0** | First version. USB OTG connection, three-channel scan (CCID / rescue / FIDO HID), device info, PHY read/write, secure boot, reboot and flashing mode, WINK, protocol self-test, bilingual UI |
+
+The full list lives on the [Releases](../../releases) page.
+
+### Publishing a new version
+
+The version lives in the `version` field of `buildozer.spec`; the workflow
+derives the release tag from it:
+
+```ini
+version = 0.2.0    # bump to 0.3.0 for the next one
+```
+
+**Raise this number before publishing.** When the tag already exists the
+workflow **fails with a message by default** rather than silently overwriting —
+that is what keeps earlier versions around. If you genuinely want to replace
+the current build in place, tick **overwrite** when running the workflow.
+
+### Version numbering convention
+
+- Bug fixes, small changes → last digit (`0.2.0` → `0.2.1`)
+- New features → middle digit (`0.2.0` → `0.3.0`)
+- Big or breaking changes → first digit (`0.2.0` → `1.0.0`)
 
 ## Supported boards
 
