@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag, e.g. v0.1.0. Leave empty to use v + version from buildozer.spec'
+        description: 'Release tag, e.g. v0.1.0. Leave empty to use v + the resolved version'
         required: false
         default: ''
       publish:
@@ -22,6 +22,16 @@ on:
         description: 'Mark the release as a pre-release'
         type: boolean
         default: false
+      bump:
+        description: 'How to set the version in buildozer.spec'
+        type: choice
+        default: 'auto'
+        options:
+          - auto    # take the newest version from CHANGELOG.md (recommended)
+          - patch   # 0.2.0 -> 0.2.1
+          - minor   # 0.2.0 -> 0.3.0
+          - major   # 0.2.0 -> 1.0.0
+          - none    # leave buildozer.spec alone
       overwrite:
         description: 'Overwrite an existing release with this tag (default: fail instead, so old versions are kept)'
         type: boolean
@@ -91,6 +101,93 @@ jobs:
           echo "project dir = $DIR"
           echo "dir=$DIR" >> "$GITHUB_OUTPUT"
           ls -la "$DIR"
+
+      # Resolve the version BEFORE buildozer runs, so the APK itself carries
+      # the new number (buildozer bakes `version` into the APK metadata).
+      #
+      # With bump=auto the single source of truth is CHANGELOG.md: add a
+      # "## [v0.3.0]" section there and this step writes 0.3.0 into
+      # buildozer.spec. That removes the "edit version in two places" trap
+      # where the CHANGELOG said one thing and the spec another.
+      - name: Resolve version
+        id: resolve
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          cd "${{ steps.locate.outputs.dir }}"
+          python3 - <<'PYEOF'
+          import os, re
+
+          BUMP = os.environ.get('BUMP', 'auto')
+          SPEC = 'buildozer.spec'
+
+          def vt(s):
+              return tuple(int(x) for x in re.findall(r'\d+', s)[:3] or [0])
+
+          def newest_in_changelog(path):
+              # Highest version among the headings, so an out-of-order or
+              # backfilled entry cannot pick the wrong one. Code fences are
+              # stripped first - the format example at the top of the file
+              # contains "## [v0.3.0]" and is not a real entry.
+              try:
+                  text = open(path, encoding='utf-8').read()
+              except FileNotFoundError:
+                  print("::warning::%s not found" % path)
+                  return None
+              text = re.sub(r'```.*?```', '', text, flags=re.S)
+              found = [m.group(1) for m in re.finditer(r'^##\s+\[?v?([\d.]+)', text, re.M)]
+              if not found:
+                  return None
+              return max(found, key=vt)
+
+          spec = open(SPEC, encoding='utf-8').read()
+          cur_m = re.search(r'^version\s*=\s*(\S+)', spec, re.M)
+          cur = cur_m.group(1) if cur_m else '0.1.0'
+          print("buildozer.spec currently says: %s" % cur)
+
+          new = None
+          if BUMP == 'none':
+              new = cur
+          elif BUMP in ('patch', 'minor', 'major'):
+              a, b, c = (list(vt(cur)) + [0, 0, 0])[:3]
+              if BUMP == 'patch':
+                  new = "%d.%d.%d" % (a, b, c + 1)
+              elif BUMP == 'minor':
+                  new = "%d.%d.0" % (a, b + 1)
+              else:
+                  new = "%d.0.0" % (a + 1)
+          else:
+              cl = newest_in_changelog('CHANGELOG.md')
+              if cl is None:
+                  print("::warning::no version heading found in CHANGELOG.md; keeping %s" % cur)
+                  new = cur
+              elif vt(cl) <= vt(cur) and BUMP == 'auto' and cl != cur:
+                  print("::warning::CHANGELOG.md newest is %s, not newer than spec %s" % (cl, cur))
+                  new = cur
+              else:
+                  new = cl
+
+          print("resolved version: %s (bump=%s)" % (new, BUMP))
+
+          if new != cur:
+              if cur_m:
+                  spec = spec[:cur_m.start()] + 'version = ' + new + spec[cur_m.end():]
+              else:
+                  spec = spec.replace('[app]', '[app]\nversion = ' + new, 1)
+              open(SPEC, 'w', encoding='utf-8').write(spec)
+              print("::notice::buildozer.spec version bumped %s -> %s" % (cur, new))
+              with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as fh:
+                  fh.write("changed=true\n")
+          else:
+              with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as fh:
+                  fh.write("changed=false\n")
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as fh:
+              fh.write("version=%s\n" % new)
+              fh.write("previous=%s\n" % cur)
+          PYEOF
+          echo "=== buildozer.spec now says ==="
+          grep -n '^version' buildozer.spec
 
       - name: Cache buildozer downloads
         uses: actions/cache@v4
@@ -255,6 +352,7 @@ jobs:
           # shell variables until they are exported here.
           TAG: ${{ steps.assets.outputs.tag }}
           VER: ${{ steps.assets.outputs.version }}
+          ARCH: arm64-v8a
         run: |
           cd "${{ steps.locate.outputs.dir }}"
           # Bilingual on purpose: the app itself ships a zh/en switch and both
@@ -266,10 +364,9 @@ jobs:
           # $ or ` in the prose cannot be expanded by accident. (envsubst would
           # be the obvious tool but it lives in gettext-base, which is not
           # guaranteed on every runner image.)
-          # Changelog-only, on purpose. Install steps, caveats and usage live
-          # in the two READMEs and are one click away from this very page -
-          # repeating them here just made every release note a wall of text
-          # that aged badly (the steps stopped matching the app long ago).
+          # Release notes are EXTRACTED FROM CHANGELOG.md / CHANGELOG.en.md,
+          # not written here. Editing the release text means editing those two
+          # files - this workflow stays untouched between releases.
           cat > release/notes.tmpl <<'EOF'
           # PicoKey Manager ${TAG}
 
@@ -281,72 +378,72 @@ jobs:
 
           ---
 
-          ## 简体中文
-
-          ### 新增
-
-          - **固件刷写页** —— 支持 UF2（RP2040/RP2350）识别与 ESP32 ROM 串口下载协议；
-            固件可来自本地文件或 https 地址，加载后自动识别格式与适用芯片
-          - 文档补齐 RP2040 / RP2350 / ESP32-S2 / S3 四种芯片的差异
-
-          ### 修复
-
-          - 状态栏遮挡顶部内容（读取系统真实状态栏高度作为顶部间距）
-          - 长英文按钮文字被截断（按钮高度改为跟随换行后的文字高度）
-          - 固件刷写页点「扫描」时闪退（成功回调里的异常现在会走错误提示，不再终结主循环）
-
-          ### 变更
-
-          - 固件刷写页按流程重排为「1. 选择板子 / 2. 选择固件 / 3. 写入」
-          - 移除界面里进下载模式的具体按键手势——不同开发板方式不同，写死会误导，
-            改为提示参照板子自身说明
-
-          `${GITHUB_SHA}` · v`${VER}` · `arm64-v8a` · debug 构建
-
-          安装方法与注意事项见 README。
+          ${ZH_BODY}
 
           ---
 
-          ## English
+          ${EN_BODY}
 
-          ### Added
-
-          - **Flash firmware page** - UF2 sniffing (RP2040/RP2350) plus the ESP32
-            ROM serial download protocol; firmware can come from a local file or
-            an https URL, and the format and target chip are detected on load
-          - Docs now cover the differences between RP2040 / RP2350 / ESP32-S2 / S3
-
-          ### Fixed
-
-          - Status bar covering the top row (the real system status-bar height is
-            now read and applied as a top inset)
-          - Long English button labels being clipped (button height now follows
-            the wrapped text height)
-          - Crash when tapping **Scan** on the firmware page (an exception in the
-            success callback now shows an error instead of killing the app)
-
-          ### Changed
-
-          - Firmware page restructured into "1. Pick the board / 2. Pick the
-            firmware / 3. Write"
-          - Removed the concrete button gestures for entering flashing mode -
-            they differ per board, so hardcoding them misleads. The UI now just
-            says to consult the board's own documentation
-
-          `${GITHUB_SHA}` - v`${VER}` - `arm64-v8a` - debug build
-
-          See the README for install steps and caveats.
+          `${GITHUB_SHA}` - v${VER} - ${ARCH} - debug build
           EOF
           python3 - <<'PYEOF'
-          import os
+          import os, re
           from string import Template
+
+          TAG = os.environ['TAG']
+          VER = os.environ['VER']
+          ARCH = os.environ.get('ARCH', 'arm64-v8a')
+
+          # Pull the block for VER out of a changelog file.
+          # Titles look like "## [v0.2.0] - 2026-09-26"; matching is on the
+          # version token inside the heading so a "v" prefix and a date are both
+          # optional. Returns "" when the file or the version is missing - the
+          # release is still produced, just without that body.
+          def section(path, lang):
+              try:
+                  text = open(path, encoding='utf-8').read()
+              except FileNotFoundError:
+                  print("::warning::%s not found - no %s body" % (path, lang))
+                  return ""
+              # Drop fenced blocks: the format example at the top contains
+              # "## [v0.3.0]" and must never be mistaken for a real entry.
+              text = re.sub(r'```.*?```', '', text, flags=re.S)
+              lines = text.split('\n')
+              # No \b here: in "v0.2.0" the "v" and the "0" are both word
+              # characters, so \b0\.2\.0\b never matches. Use digit/dot
+              # lookaround instead, which also stops 0.2.0 matching 0.2.01.
+              pat = re.compile(r'(?<![0-9.])' + re.escape(VER) + r'(?![0-9.])')
+              start = None
+              for i, line in enumerate(lines):
+                  m = re.match(r'^##\s+(.*)$', line)
+                  if m and pat.search(m.group(1)):
+                      start = i
+                      break
+              if start is None:
+                  print("::warning::no %s section in %s - add one" % (VER, path))
+                  return ""
+              end = len(lines)
+              for j in range(start + 1, len(lines)):
+                  if re.match(r'^##\s+', lines[j]):
+                      end = j
+                      break
+              return '\n'.join(lines[start + 1:end]).strip()
+
+          zh = section('CHANGELOG.md', 'zh')
+          en = section('CHANGELOG.en.md', 'en')
+          if not zh and not en:
+              print("::warning::no changelog entry at all for %s" % VER)
+
           raw = open('release/notes.tmpl', encoding='utf-8').read()
           out = Template(raw).safe_substitute(
-              TAG=os.environ['TAG'],
-              VER=os.environ['VER'],
+              TAG=TAG, VER=VER, ARCH=ARCH,
+              ZH_BODY=zh or ("(no entry for %s in CHANGELOG.md)" % VER),
+              EN_BODY=en or ("(no entry for %s in CHANGELOG.en.md)" % VER),
               GITHUB_SHA=os.environ.get('GITHUB_SHA', 'unknown'),
           )
           open('release/notes.md', 'w', encoding='utf-8').write(out)
+          print("=== release notes ===")
+          print(out)
           PYEOF
           rm -f release/notes.tmpl
           cat release/notes.md
@@ -407,3 +504,40 @@ jobs:
           gh release view "$TAG" --json url --jq '.url'
           echo "=== assets now in $TAG ==="
           gh release view "$TAG" --json assets --jq '.assets[] | "  \(.name)  \(.size) bytes"'
+
+
+      # Commit the version bump back so the repo and the release agree.
+      # Placed last on purpose: only a build that actually produced an APK
+      # (and optionally published it) should consume a version number. If the
+      # build failed, the job already stopped and this never runs - so a red
+      # run cannot silently burn a version.
+      - name: Commit version bump
+        if: ${{ steps.resolve.outputs.changed == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VER: ${{ steps.resolve.outputs.version }}
+          PREV: ${{ steps.resolve.outputs.previous }}
+        run: |
+          cd "${{ steps.locate.outputs.dir }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Rebase first: another commit may have landed while the ~30 min
+          # build was running, and a bare push would then be rejected.
+          git pull --rebase --autostash origin "${{ github.ref_name }}" || \
+            echo "::warning::rebase failed, attempting push anyway"
+          git add buildozer.spec
+          if git diff --cached --quiet; then
+            echo "nothing to commit - buildozer.spec unchanged"
+            exit 0
+          fi
+          # [skip ci] is belt-and-braces: this workflow is manual-only
+          # (workflow_dispatch), so the push cannot re-trigger it anyway, but
+          # it keeps any future push-based workflow from firing.
+          git commit -m "chore: bump version ${PREV} -> ${VER} [skip ci]"
+          if git push origin "HEAD:${{ github.ref_name }}"; then
+            echo "::notice::buildozer.spec committed: ${PREV} -> ${VER}"
+          else
+            echo "::warning::could not push the version bump."
+            echo "::warning::The release went out as ${VER}, so edit buildozer.spec"
+            echo "::warning::to 'version = ${VER}' by hand or the next run will bump again."
+          fi
