@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>PicoKey Web Flasher (WebUSB)</title>
+<!-- GitHub Pages serves this file with its own cache headers, and phones cache
+     aggressively. These three ask the browser not to keep a stale copy. They
+     cannot override a CDN, which is why the visible version stamp below and the
+     "force reload" button exist as well - see PAGE_VERSION. -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <style>
   :root{
     --bg:#12161c; --panel:#1b2129; --panel2:#232b35; --line:#313c49;
@@ -90,6 +97,14 @@
 <div class="langbar">
   <button class="ghost" onclick="setLang('zh')">简体中文</button>
   <button class="ghost" onclick="setLang('en')">English</button>
+  <button class="ghost" onclick="forceReload()" data-i18n="btnReload" style="margin-left:auto">强制刷新</button>
+</div>
+
+<!-- Filled in by checkForUpdate() when the copy GitHub Pages is serving is
+     newer than the one the browser is showing. -->
+<div id="staleBar" class="banner warn hidden">
+  <span data-i18n="staleText"></span>
+  <button class="primary" onclick="forceReload()" data-i18n="btnReload" style="margin-top:8px;width:100%">强制刷新</button>
 </div>
 
 <h1 data-i18n="title">PicoKey 网页刷写工具</h1>
@@ -150,7 +165,9 @@
 
 <div class="tail">
   <span data-i18n="tail1">esptool ROM 协议为独立实现，不含上游代码</span><br>
-  <span data-i18n="tail2">需要 HTTPS + Chrome/Edge · 仅支持 ESP32-S2 / S3 下载模式</span>
+  <span data-i18n="tail2">需要 HTTPS + Chrome/Edge · 仅支持 ESP32-S2 / S3 下载模式</span><br>
+  <span data-i18n="tailVer">页面版本</span>: <b id="verStamp">—</b>
+  <span data-i18n="tailVerHint">（看到旧版本号就说明是缓存，点上面的「强制刷新」）</span>
 </div>
 
 <div id="modalMask" class="hidden">
@@ -175,6 +192,11 @@
    不在受保护列表里，浏览器可以接管 —— 刷写因此可行。
    ========================================================================= */
 
+/* Bump this every time the file changes. It is printed at the bottom of the
+   page so you can tell at a glance whether the browser is showing the current
+   copy, and checkForUpdate() compares it against what GitHub Pages serves. */
+const PAGE_VERSION = 'r6';
+
 let LANG = 'zh';
 const I18N = {
   zh: {
@@ -183,6 +205,11 @@ const I18N = {
     secConnect:"1. 连接处于下载模式的板子", secPick:"2. 选择固件文件",
     secFlash:"3. 刷入固件",
     secLog:"日志", secChangelog:"更新日志", changelogTitle:"本页的更新记录",
+    btnReload:"强制刷新",
+    tailVer:"页面版本", tailVerHint:"（刷新后仍是这个号，说明 Pages 还没部署完，等几分钟）",
+    staleText:"GitHub Pages 上已经是更新的版本了，你现在看到的是缓存里的旧页面。",
+    checkingUpdate:"正在检查页面版本…",
+    updateCheckFailed:"版本检查没能完成（不影响刷写功能）",
     btnConnect:"选择 USB 设备", btnDiag:"诊断接口", btnDisconnect:"断开",
     btnPickFile:"点击选择固件文件", btnFlash:"刷入（会覆盖现有固件）",
     btnClearLog:"清空日志", btnCopyLog:"复制日志", btnModalOk:"知道了",
@@ -239,7 +266,7 @@ const I18N = {
     mFlashFailTitle:"刷写失败",
     mFlashFailBody:"刷写过程中出错。\n\nESP32 通常可以救回：ROM 下载模式烧不掉，重新进入下载模式再刷一次即可。\n\n详情看日志里的具体报错。",
     // 页面内更新日志
-    changelogText:"2026-10-09\n· 本页改为 ESP32-S2 / S3 固件刷写工具\n· 实现 esptool ROM 协议（SLIP 组帧 + FLASH_BEGIN/DATA/END），不上传 flasher stub\n· 顶部如实说明：Chrome 屏蔽 CCID，本页无法配置运行中的设备\n· 移除「安全启动 / 安全锁」整节（浏览器做不到，留着只是误导）\n· 选文件不再限定 .bin，按内容识别格式\n· 浏览器不支持 WebUSB / 非 HTTPS 时恢复启动弹窗（之前只写进日志，容易滑过去就看不到）\n· 选择设备失败时弹出排查指引，不再只显示“已取消”\n· 启动时自动复用上次已授权的设备\n\n更早\n· 原为 CCID 配置工具（因浏览器屏蔽 CCID 而无法工作）\n· 增加中英双语切换",
+    changelogText:"2026-10-09\n· 本页改为 ESP32-S2 / S3 固件刷写工具\n· 实现 esptool ROM 协议（SLIP 组帧 + FLASH_BEGIN/DATA/END），不上传 flasher stub\n· 顶部如实说明：Chrome 屏蔽 CCID，本页无法配置运行中的设备\n· 移除「安全启动 / 安全锁」整节（浏览器做不到，留着只是误导）\n· 选文件不再限定 .bin，按内容识别格式\n· 浏览器不支持 WebUSB / 非 HTTPS 时恢复启动弹窗（之前只写进日志，容易滑过去就看不到）\n· 加禁止缓存的 meta、页面版本戳（r6）、「强制刷新」按钮，并自动比对 Pages 上的版本，\n  检测到旧页面时顶部提示\n· 选择设备失败时弹出排查指引，不再只显示“已取消”\n· 启动时自动复用上次已授权的设备\n\n更早\n· 原为 CCID 配置工具（因浏览器屏蔽 CCID 而无法工作）\n· 增加中英双语切换",
   },
   en: {
     title:"PicoKey Web Flasher", subtitle:"Flash ESP32-S2 / S3 firmware over WebUSB · no app · no compiling",
@@ -247,6 +274,11 @@ const I18N = {
     secConnect:"1. Connect the board in download mode", secPick:"2. Pick a firmware file",
     secFlash:"3. Flash it",
     secLog:"Log", secChangelog:"Changelog", changelogTitle:"Changes to this page",
+    btnReload:"Force reload",
+    tailVer:"Page version", tailVerHint:" (if it stays this number after reloading, Pages has not finished deploying yet - wait a few minutes)",
+    staleText:"GitHub Pages already has a newer version; you are looking at a cached copy.",
+    checkingUpdate:"Checking page version…",
+    updateCheckFailed:"Version check failed (flashing still works)",
     btnConnect:"Select USB device", btnDiag:"Diagnose", btnDisconnect:"Disconnect",
     btnPickFile:"Tap to pick a firmware file", btnFlash:"Flash (overwrites current firmware)",
     btnClearLog:"Clear log", btnCopyLog:"Copy log", btnModalOk:"Got it",
@@ -301,7 +333,7 @@ const I18N = {
     mWrongModeBody:"Connected, but the handshake failed — the bootloader did not answer.\n\nThat usually means the board is not in download mode: it is running firmware normally (which uses CCID and could not be claimed at all), or it is running something else.\n\nPut it into download mode and try again; the method differs per board, so check the board's documentation.",
     mFlashFailTitle:"Flash failed",
     mFlashFailBody:"Something went wrong while flashing.\n\nAn ESP32 is usually recoverable: the ROM download mode cannot be erased, so re-enter download mode and flash again.\n\nSee the log for the exact error.",
-    changelogText:"2026-10-09\n· This page is now an ESP32-S2 / S3 firmware flasher\n· Implemented the esptool ROM protocol (SLIP framing + FLASH_BEGIN/DATA/END), no flasher stub uploaded\n· The top banner now states plainly that Chrome blocks CCID, so this page cannot configure a running device\n· Removed the \"Secure boot / secure lock\" section entirely (impossible here)\n· File picking no longer assumes .bin; the format is detected from content\n· Restored the startup popup for no-WebUSB / non-HTTPS (a log line is too easy to scroll past)\n· When no device appears the page explains why instead of just saying \"cancelled\"\n· Previously authorised devices are reused on load\n\nEarlier\n· Was a CCID configuration tool (unusable: browsers block CCID)\n· Added the Chinese / English switch",
+    changelogText:"2026-10-09\n· This page is now an ESP32-S2 / S3 firmware flasher\n· Implemented the esptool ROM protocol (SLIP framing + FLASH_BEGIN/DATA/END), no flasher stub uploaded\n· The top banner now states plainly that Chrome blocks CCID, so this page cannot configure a running device\n· Removed the \"Secure boot / secure lock\" section entirely (impossible here)\n· File picking no longer assumes .bin; the format is detected from content\n· Restored the startup popup for no-WebUSB / non-HTTPS (a log line is too easy to scroll past)\n· Added no-cache meta tags, a visible page version stamp, a \"Force reload\" button, and an\n  automatic comparison against what Pages serves, with a banner when your copy is stale\n· When no device appears the page explains why instead of just saying \"cancelled\"\n· Previously authorised devices are reused on load\n\nEarlier\n· Was a CCID configuration tool (unusable: browsers block CCID)\n· Added the Chinese / English switch",
   }
 };
 
@@ -316,6 +348,39 @@ function setLang(l){
     el.textContent = t(el.getAttribute('data-i18n'));
   });
   log('lang = ' + l, 'dim');
+}
+
+/* --------------------------- cache busting ---------------------------
+   Phones cache single-file pages hard, and Pages adds its own layer. Three
+   defences: the no-cache meta tags up top, a version stamp you can actually
+   read, and this explicit reload that appends a throwaway query so the
+   browser cannot serve the cached copy. */
+function forceReload(){
+  const base = location.href.split('#')[0].split('?')[0];
+  location.replace(base + '?v=' + Date.now());
+}
+async function checkForUpdate(){
+  const stamp = document.getElementById('verStamp');
+  if (stamp) stamp.textContent = PAGE_VERSION;
+  try {
+    const url = location.href.split('#')[0].split('?')[0] + '?check=' + Date.now();
+    const res = await fetch(url, {cache:'no-store'});
+    if (!res.ok) return;
+    const text = await res.text();
+    const m = text.match(/const\s+PAGE_VERSION\s*=\s*'([^']+)'/);
+    if (!m) return;
+    const served = m[1];
+    if (served !== PAGE_VERSION){
+      log('stale copy: showing ' + PAGE_VERSION + ', Pages has ' + served, 'warn');
+      const bar = document.getElementById('staleBar');
+      if (bar){ bar.classList.remove('hidden'); }
+    } else {
+      log('page is current (' + served + ')', 'dim');
+    }
+  } catch(e){
+    // Offline, or the fetch was blocked. Not worth bothering the user.
+    log(t('updateCheckFailed'), 'dim');
+  }
 }
 
 /* ------------------------------- logging ------------------------------- */
@@ -736,6 +801,7 @@ async function doFlash(){
 /* --------------------------- boot --------------------------- */
 setLang('zh');
 updateFlashGate();
+checkForUpdate();
 
 // Belt and braces: the modal must start hidden even if the stylesheet fails
 // to load or someone edits the markup. Without this a stuck overlay would
