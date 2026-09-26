@@ -344,28 +344,11 @@ jobs:
             exit 1
           fi
 
-          # The WebUSB commissioner is shipped next to the APK on purpose: it
-          # needs zero compiling and works straight from GitHub Pages, which
-          # is the only realistic path for someone without a PC.
-          #
-          # Missing HTML is NOT an error - it just means the file has not been
-          # committed yet, and the release should still carry the APK.
-          has_html=false
-          for cand in picokey-commissioner.html \
-                      docs/picokey-commissioner.html \
-                      tools/picokey-commissioner.html; do
-            if [ -f "$cand" ]; then
-              cp "$cand" release/picokey-commissioner.html
-              has_html=true
-              echo "found commissioner HTML at: $cand"
-              break
-            fi
-          done
-          if [ "$has_html" = "false" ]; then
-            echo "::warning::picokey-commissioner.html not found in the repo - releasing APK only"
-          fi
-          echo "has_html=$has_html" >> "$GITHUB_OUTPUT"
-
+          # Only the APK goes into the release. The web flasher is deployed to
+          # GitHub Pages by static.yml instead - carrying it here as well just
+          # gave people two copies that drift apart, and downloading an HTML
+          # file over file:// is one of the ways people end up with a page
+          # where WebUSB silently does nothing.
           ls -la release/
 
       # Kept as well: artifacts survive even if the release step is skipped or
@@ -388,13 +371,11 @@ jobs:
           TAG: ${{ steps.assets.outputs.tag }}
           VER: ${{ steps.assets.outputs.version }}
           PUBLISH: ${{ inputs.publish }}
-          HAS_HTML: ${{ steps.assets.outputs.has_html }}
         run: |
           echo "=== publish decision ==="
           echo "  tag          : ${TAG:-(none)}"
           echo "  version      : ${VER:-(none)}"
           echo "  publish flag : ${PUBLISH:-(none)}"
-          echo "  html asset   : ${HAS_HTML:-(none)}"
           if [ "${PUBLISH}" != "true" ]; then
             echo "::warning::publish=false, so NO release will be created or updated."
             echo "        The APK is still available from the 'picokey-manager-debug' artifact."
@@ -525,10 +506,8 @@ jobs:
           if [ "${{ inputs.draft }}" = "true" ]; then FLAGS+=(--draft); fi
           if [ "${{ inputs.prerelease }}" = "true" ]; then FLAGS+=(--prerelease); fi
 
+          # APK only - see the note in the asset step above.
           ASSETS=(release/*.apk)
-          if [ -f release/picokey-commissioner.html ]; then
-            ASSETS+=(release/picokey-commissioner.html)
-          fi
           echo "uploading: ${ASSETS[@]}"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
