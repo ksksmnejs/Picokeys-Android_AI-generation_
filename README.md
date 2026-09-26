@@ -11,9 +11,10 @@
 一个通过 USB OTG 连接 **PicoKey**（Pico HSM / Pico FIDO / Pico OpenPGP）的安卓应用。
 它是桌面端 Python 库 [pypicokey](https://github.com/IsayIsee/pypicokey) 的安卓移植版，
 最终打包成一个可直接安装的 APK。
+支持的芯片包括 **RP2040、RP2350、ESP32-S2、ESP32-S3**（见[支持的开发板](#支持的开发板)）。
 
 用 OTG 转接线把设备插到手机上，就能读取设备信息、修改 PHY 配置（USB VID/PID、LED 引脚与亮度、
-启用的 USB 接口）、让 LED 闪一下、重启设备，或重启进入 BOOTSEL 模式拖入新固件。
+启用的 USB 接口）、让 LED 闪一下、重启设备，或进入刷机模式写入新固件。
 
 **下载**：已编译好的 APK 在本仓库的 [Releases](../../releases) 页面，直接取最新版本安装即可。
 
@@ -28,7 +29,8 @@ release notes 自动生成且为**中英双语**（含版本号、commit 号、�
 **本仓库的代码由 AI 编写，并非 PicoKey 上游作者的作品。** 使用前请先审阅。由此有两点必须说明：
 
 - 协议层有自动化自检覆盖，但**全部代码从未在真实 PicoKey 上运行过**（见[项目状态](#项目状态)）。
-- 安卓移植部分（`usbhost.py`、`ccid.py`、`ctap.py`、`cbor_mini.py`、`detect.py`、`main.py`）
+- 安卓移植部分（`usbhost.py`、`ccid.py`、`ctap.py`、`cbor_mini.py`、`detect.py`、
+  `flasher.py`、`main.py`）
   是本项目新写的代码，其中的任何缺陷都属于本项目，与上游无关。
 
 设备出现异常时，请优先怀疑这个 App。
@@ -47,6 +49,67 @@ release notes 自动生成且为**中英双语**（含版本号、commit 号、�
 设备协议本身——CCID 组帧、APDU、PHY 的 TLV、CTAPHID——是纯 Python，原样沿用未作修改，
 只替换了底层的"字节管道"。CCID 与 FIDO HID 两条通道均已实现，扫描时自动列出。
 
+## 支持的开发板
+
+PicoKeys 固件跑在四种芯片上。协议层完全一样，差别全在**刷机方式、进入刷机模式的手势、
+以及安全特性**上——这也是这个 App 需要按板子区分对待的唯一原因。
+
+| 芯片 | 典型板子 | 刷机方式 | 进刷机模式 | Secure Boot / Lock |
+| --- | --- | --- | --- | --- |
+| **RP2040** | Raspberry Pi Pico / Pico W | UF2（BOOTSEL 变 U 盘） | 按住 BOOTSEL 插入 | ❌ 无硬件保护 |
+| **RP2350** | Pico 2、Waveshare RP2350-One/Zero/Tiny | UF2（BOOTSEL 变 U 盘） | 按住 BOOTSEL 插入 | ✅ 完整支持 |
+| **ESP32-S2** | ESP32-S2 开发板 | esptool / DFU | 按住 BOOT → 按 RESET → 松 RESET → 松 BOOT | ⚠️ 见下 |
+| **ESP32-S3** | ESP32-S3 SuperMini、DevKitC | esptool / DFU | 同上 | ⚠️ 见下 |
+
+### RP2040 与 RP2350 的区别（不只是主频）
+
+两者都用 UF2，但**安全性完全不同**：
+
+- RP2350 有一个 OTP（一次性可编程）区，可存放加密所有密钥的主密钥（MKEK），
+  配合 Secure Boot / Secure Lock 能抵抗 flash 被读出。
+- **RP2040 没有这套硬件**。它的 flash 内容可直接读取，板子丢了里面的私钥就暴露了。
+
+所以如果安全性是目的，请用 RP2350 或 ESP32-S3，别用 RP2040。
+
+### ESP32-S2 / S3 的两个特殊之处
+
+**1. 两个 USB 控制器共用一个 PHY**
+
+ESP32-S3 内部有 USB Serial/JTAG（固定功能，用于烧录和调试）和 USB-OTG（可编程，
+TinyUSB）两个控制器，但它们**共用同一个内部 USB PHY**，同一时刻只能有一个占用那个
+原生 USB 口。固件跑起来时用的是其中一个；进下载模式时是另一个。
+
+**2. 下载模式下设备名会变**
+
+进下载模式后，设备会自报为 **"USB JTAG/serial debug unit"**（VID/PID 也和运行时不同）。
+这不是 PicoKey 的 CCID 接口，**对它发 CCID 指令不会有任何回应**。
+
+如果你的 App 日志里看到这个名字，说明板子正卡在下载模式——**拔掉、什么都不按、重新插**，
+让固件正常启动。这也是本项目在检测到这个名字时会弹窗提醒的原因。
+
+### 关于 Secure Boot 在 ESP32 上
+
+官方 README 声称 ESP32-S3 支持 Secure Boot 与 Secure Lock，但社区分叉（LibreKeys）的
+支持矩阵里这两项对 ESP32-S2/S3 标注的是 `No (// TODO)`，只有 RP2350 是完整支持。
+两边说法不一致，**本项目无法替你确认**。
+
+实践建议：先点「读取安全启动状态」。如果读不出来或读到的值异常，就说明该功能在这块
+板子上没实现，**不要硬写**——OTP 熔丝烧错了是物理级不可逆的。
+
+### 出厂 VID/PID
+
+2026 年 1 月起，固件出厂就用树莓派正式分配的 USB ID，不再需要为了"被系统识别"而开光：
+
+| 固件 | VID:PID |
+| --- | --- |
+| Pico HSM | `2E8A:10FD` |
+| Pico FIDO | `2E8A:10FE` |
+| Pico OpenPGP | `2E8A:10FF` |
+
+更早的固件用的是占位 ID `FEFF:FCFD`，那种才必须改。**如果你的目的是"当个能用的 FIDO2
+密钥"且 VID/PID 已经是上表中的值，那就什么都不用配**——改 VID/PID 主要是为了伪装成
+YubiKey（让某些网站或 Yubico Authenticator 认）。
+
 ## 功能
 
 桌面版 PicoKey App 存在的原因，是固件虽然跨平台，但 LED 接法、GPIO 映射、板卡身份这些
@@ -59,9 +122,9 @@ release notes 自动生成且为**中英双语**（含版本号、commit 号、�
 | GPIO 映射 | LED GPIO、确认按键（UP）GPIO | ✅ |
 | USB 行为 | CCID / WCID / HID / KB 接口开关，WCID、DIMM、禁电源复位 | ✅ |
 | 密码学能力 | 启用曲线位图（P-256/P-384/…/Ed25519/X25519，共 11 种） | ✅ |
-| 安全启动 | 启动密钥槽（0-15）、永久锁定 | ✅ |
+| 安全启动 | 启动密钥槽（0-15）、永久锁定 | ⚠️ 仅 RP2350 确认可用，ESP32 存疑 |
 | 设备信息 | 平台、产品、固件版本、Flash 用量 | ✅ |
-| 维护 | 重启、重启到 BOOTSEL、WINK 闪灯、FIDO getInfo | ✅ |
+| 维护 | 重启、进入刷机模式、WINK 闪灯、FIDO getInfo | ✅ |
 | 一键切换固件 | —— | ❌ 见下 |
 
 - **设备扫描** — 枚举 USB 设备，列出所有可用通道：
@@ -72,12 +135,15 @@ release notes 自动生成且为**中英双语**（含版本号、commit 号、�
 - **内置协议自检** — 用假 USB 管道把协议栈跑一遍，无需硬件
 
 **一键切换固件没有实现**，这一点说清楚：官方桌面版把各固件镜像打包在应用里，
-本项目既没有这些镜像文件，也没有再分发的权利。要换固件，请用
-**重启到 BOOTSEL** 进入 UF2 模式后在电脑上拖入。
+本项目既没有这些镜像文件，也没有再分发的权利。要换固件，请用**进入刷机模式**
+（RP2040/RP2350 是 BOOTSEL，ESP32 是 BOOT+RESET）后自行写入。
+具体实现见[固件刷写](#固件刷写)。
 
 ## 使用方法
 
-1. 用 **OTG 转接线**连接 PicoKey。
+1. 用 **OTG 转接线**连接 PicoKey。**不要按任何按键**——按住 BOOT/BOOTSEL 插入会让
+   板子进刷机模式，此时它不是 PicoKey，App 连不上（ESP32 会显示为
+   "USB JTAG/serial debug unit"）。
 2. 打开 App → **扫描 USB 设备**，列表里会出现每个可用通道。
 3. 点一个进行连接。手机会弹出 USB 授权对话框，**必须点允许**（只弹一次；
    若点了拒绝，需要到系统设置里重新开启）。
@@ -86,10 +152,19 @@ release notes 自动生成且为**中英双语**（含版本号、commit 号、�
    - **读取 PHY 配置** — 把当前配置填入下方输入框
    - **写入 PHY 配置** — 应用改动，设备会重启
    - **WINK** — 让 LED 闪烁（仅 FIDO 通道）
-   - **重启到 BOOTSEL** — 进入 UF2 模式
+   - **进入刷机模式** — RP2040/RP2350 进 BOOTSEL，ESP32 进下载模式
 
 如果设备没被识别，先点**运行协议自检**——它不需要硬件。全绿就说明 App 本身没问题，
 问题在 OTG 线、供电或转接头上。
+
+### 首次使用的建议顺序
+
+1. **先只读取，不写入** — 确认能读到设备信息，说明链路是通的
+2. 需要改 VID/PID 时，留空字段会自动继承设备当前值，不会冲掉 LED GPIO 这类板子特定配置
+3. **启用曲线至少勾 P-256**（ES256，WebAuthn 最通用的默认算法）+ 可选 Ed25519；
+   **不要勾 secp256k1** — 官方文档明确警告部分旧安卓设备不支持它，启用后设备可能无法识别
+4. **安全启动留到最后**，且需满足：已注册通行密钥并日常验证过、有备份、
+   确认刷的是官方原版固件、接受不可逆后果
 
 ## 目录结构
 
@@ -103,6 +178,7 @@ picokeyapp/
   ctap.py                   CTAPHID 传输层（INIT / WINK / CBOR）
   cbor_mini.py              零依赖 CBOR 编解码（仅用于 authenticatorGetInfo）
   detect.py                 扫描设备，识别 ccid / rescue / fido 通道
+  flasher.py                固件刷写：UF2 识别 + ESP32 ROM 串口协议（SLIP/FLASH_*）
   selftest.py               不需要硬件的协议自检
   pk/                       移植自上游的纯 Python 层（已去掉 pyscard / pyusb）
 assets/fonts/               随包的中文字体（Noto Sans SC 子集，OFL 许可）
@@ -152,6 +228,12 @@ tools/fake_android_check.py 用假 jnius 驱动的集成检查
   在 p4a 里容易失败。因此"安全通道 / DKEK"相关功能不可用，其余功能正常。
 - 没有热插拔监听，拔线后回到扫描页重新连接即可。
 - 需要 Android 8.0（API 26）以上、支持 USB host 的设备和一根 OTG 转接线。
+- **RP2040 没有 OTP 硬件保护**，其 flash 内容可被直接读出；需要防物理提取请用
+  RP2350 或 ESP32-S3（且需确认 Secure Boot 在该板子上确实可用）。
+- **ESP32-S2/S3 的 Secure Boot / Secure Lock 支持情况存疑**，官方与社区分叉说法不一致。
+  本项目只提供读取与写入接口，不做判断——请先读，读不通就别写。
+- 三种固件（HSM / FIDO / OpenPGP）**不能共存**，切换需先刷 Pico Nuke 清空。
+  建议按用途各用一块板子，而不是来回切换。
 
 ## 故障排查
 
@@ -163,22 +245,42 @@ tools/fake_android_check.py 用假 jnius 驱动的集成检查
   同时在 `App.build()`（UI 线程）里预加载所有会用到的 Java 类，写进 pyjnius 缓存。
 - **设备扫得到、一连就失败** — 多半是 USB 权限弹窗被拒。Android 只弹一次，
   拒了要去系统设置里重新允许，或卸载重装 App。
+- **日志里出现 "USB JTAG/serial debug unit"（ESP32）** — 板子在下载模式，不是 PicoKey。
+  拔掉、什么都不按、重新插。
+- **ESP32 上安全启动读不出来** — 大概率该功能在这块板子上没实现（官方说法与社区分叉
+  不一致）。不要硬写，OTP 熔丝不可逆。
+- **中文显示成方块（▯）** — `assets/fonts/` 没传，或 `buildozer.spec` 的
+  `source.include_exts` 不含 `ttf`，字体没被打进 APK。
 
 ## 固件刷写
 
-App 里多了一个「固件刷写」页（扫描页底部按钮进入）。它处理两种完全不同的机制：
+App 里有一个「固件刷写」页（扫描页底部按钮进入）。它处理两种**机制完全不同**的路径：
 
-| 板子 | 刷机方式 | 本 App 的做法 |
+| 板子 | 底层机制 | 本 App 的做法 |
 |---|---|---|
-| RP2040 / RP2350 | BOOTSEL 后变成一个 U 盘，拷入 .uf2 即可 | 把 UF2 交给系统文件管理器，由你存到 `RPI-RP2` / `RP2350` 盘里 |
-| ESP32-S2 / S3 | USB Serial/JTAG 上的 esptool ROM 串口协议 | 直接实现该协议（SLIP 组帧 + FLASH_BEGIN/DATA/END），不需要外部工具 |
+| RP2040 / RP2350 | BOOTSEL 后 Boot ROM 把 flash 暴露成 USB 大容量存储设备（U 盘），拷入 `.uf2` 即完成 | 把 UF2 交给系统文件管理器，由你存到 `RPI-RP2`（RP2040）或 `RP2350` 盘里 |
+| ESP32-S2 / S3 | USB Serial/JTAG 上的 esptool ROM 串口协议，**没有 UF2 bootloader** | 直接实现该协议（SLIP 组帧 + FLASH_BEGIN/DATA/END），不需要外部工具 |
 
 固件可以来自本地文件，也可以填一个 https 地址下载。选好后 App 会识别格式
-（UF2 / ESP 镜像 / ZIP / gzip / 误下载的网页）并显示大小和适用芯片。
+（UF2 / ESP 镜像 / ZIP / gzip / 误下载成网页）并显示大小和适用芯片。
 
-⚠️ **这条刷写路径没有在真机上验证过。** ESP32 出错通常可以重来（ROM 下载模式能救回），
-但 UF2 写入走的是系统文件管理器，本身是可靠的。第一次建议只做识别、不刷写，
-先看日志确认每一步。
+### 各板子进刷机模式的手势
+
+**RP2040 / RP2350**：按住 **BOOTSEL** → 插入 USB → 松开。手机上会多出一个 U 盘，
+把 UF2 存进去，盘符自动消失即刷写完成。连驱动都不用装。
+
+**ESP32-S2 / S3**：按住 **BOOT** → 按一下 **RESET** → 松开 RESET → 松开 BOOT。
+顺序错了、或只按了 BOOT 没按 RESET，芯片就还在跑旧程序。进下载模式后设备名会变成
+"USB JTAG/serial debug unit"。
+
+⚠️ **两条刷写路径都没有在真机上验证过。**
+
+- ESP32 出错**通常可以重来**（ROM 下载模式还在，能救回），这是它的优势
+- RP2040/RP2350 的 UF2 路径只是委托给系统文件管理器，本身是可靠的
+- 第一次建议**只做识别、不刷写**，对着日志确认每一步再动
+
+另外 ESP32-S3 想让 USB-OTG 彻底接管那个口，需要烧 `USB_PHY_SEL` eFuse——
+**永久不可逆**。本项目不会引导你这么做。
 
 ## 编译排错
 
