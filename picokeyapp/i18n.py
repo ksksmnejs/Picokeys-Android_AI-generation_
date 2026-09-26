@@ -235,9 +235,20 @@ STRINGS.update({
         "zh": "给板子刷固件。RP2040/RP2350 用 UF2 文件，ESP32 走串口下载协议——两者机制完全不同，App 会根据识别结果走对应流程。",
         "en": "Flash firmware onto the board. RP2040/RP2350 take a UF2 file, ESP32 uses the serial download protocol — mechanically unrelated, and this app picks the right flow from the detected format.",
     },
+    # ---- 用系统文件管理器选文件（SAF）----
+    "fw_pick_hint": {
+        "zh": "点下面的按钮，用手机上的文件管理器选择固件文件（.uf2 或 .bin）。",
+        "en": "Tap the button below and pick the firmware file (.uf2 or .bin) with your phone's file manager.",
+    },
+    "fw_pick_failed": {
+        "zh": "读取所选文件失败。",
+        "en": "Could not read the selected file.",
+    },
+    "fw_no_file_manager": {
+        "zh": "没找到文件管理器，无法选择文件。",
+        "en": "No file manager found, cannot pick a file.",
+    },
     "fw_pick_file": {"zh": "选择固件文件", "en": "Pick firmware file"},
-    "fw_from_url": {"zh": "从 URL 下载", "en": "Download from URL"},
-    "fw_url_hint": {"zh": "固件 URL（https://...）", "en": "Firmware URL (https://...)"},
     "fw_no_file": {"zh": "未选择文件", "en": "No file chosen"},
     "fw_kind": {"zh": "识别结果", "en": "Detected"},
     "fw_size": {"zh": "大小", "en": "Size"},
@@ -255,26 +266,6 @@ STRINGS.update({
     "fw_save_uf2": {"zh": "交给文件管理器保存（RP2040/RP2350）", "en": "Save via file manager (RP2040/RP2350)"},
     "fw_scan_bootloader": {"zh": "扫描处于下载模式的设备", "en": "Scan for a device in download mode"},
     # 分区标题（三个小节，替代原来散落的说明文字）
-    # ---- 官方固件（从 GitHub Releases 获取）----
-    "fw_github": {"zh": "从 GitHub 获取官方固件", "en": "Get official firmware from GitHub"},
-    "fw_github_hint": {
-        "zh": "直接从官方开源仓库的 Releases 里列出固件并选择下载，不用自己找文件。",
-        "en": "Lists firmware straight from the upstream open-source repo's releases - no need to hunt for a file yourself.",
-    },
-    "fw_github_fetching": {"zh": "正在获取固件列表…", "en": "Fetching the firmware list…"},
-    "fw_github_downloading": {"zh": "正在下载 {name}…", "en": "Downloading {name}…"},
-    "fw_github_choose": {"zh": "选择一个固件", "en": "Pick a firmware"},
-    "fw_github_none": {
-        "zh": "没找到可用的固件文件（可能网络不通）。",
-        "en": "No usable firmware found (network may be unreachable).",
-    },
-    "fw_github_fail": {"zh": "获取失败：{err}", "en": "Could not fetch: {err}"},
-    "fw_github_offline": {
-        "zh": "连不上 GitHub，请检查网络后重试。",
-        "en": "Cannot reach GitHub - check your connection and retry.",
-    },
-    "fw_github_nightly": {"zh": "预发布", "en": "pre-release"},
-    "fw_github_source": {"zh": "来源：{repo} {tag}", "en": "Source: {repo} {tag}"},
     "fw_sec_device": {"zh": "1. 选择板子", "en": "1. Pick the board"},
     "fw_sec_image": {"zh": "2. 选择固件", "en": "2. Pick the firmware"},
     "fw_sec_write": {"zh": "3. 写入", "en": "3. Write"},
