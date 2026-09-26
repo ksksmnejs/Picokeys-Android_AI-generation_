@@ -89,39 +89,117 @@ def open_picker(on_result):
         raise SafUnavailable(str(exc)) from exc
 
 
-def read_uri(uri) -> bytes:
-    """Read the whole content of a content:// Uri.
+def _read_via_fd(resolver, uri) -> bytes:
+    """Preferred path: get a real file descriptor and read it with os.read.
 
-    Uses ContentResolver.openInputStream. Going through the resolver is the
-    only correct way - Uri.getPath() is not a filesystem path and opening it
-    with Python's open() fails on every modern Android version.
+    This avoids jnius arrays entirely. ContentResolver.openFileDescriptor gives
+    us a ParcelFileDescriptor whose getFd() is an honest POSIX fd, so plain
+    os.read works and there is no Java byte[] marshalling to get wrong.
+    """
+    import os
+
+    pfd = resolver.openFileDescriptor(uri, "r")
+    if pfd is None:
+        raise SafUnavailable("openFileDescriptor returned null")
+
+    try:
+        fd = pfd.getFd()
+        if fd is None or fd < 0:
+            raise SafUnavailable("bad file descriptor")
+        try:
+            size = int(pfd.getStatSize() or 0)
+        except Exception:
+            size = 0
+
+        chunks = []
+        remaining = size if size > 0 else None
+        while True:
+            want = 65536 if remaining is None else min(65536, remaining)
+            chunk = os.read(fd, want)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            if remaining is not None:
+                remaining -= len(chunk)
+                if remaining <= 0:
+                    break
+        return b"".join(chunks)
+    finally:
+        # Close whichever end still works; a double close raises, not fails.
+        try:
+            pfd.close()
+        except Exception:
+            pass
+
+
+def _read_via_stream(resolver, uri) -> bytes:
+    """Fallback for providers that do not support openFileDescriptor.
+
+    Streams a Java InputStream into a ByteArrayOutputStream. The jarray type
+    letter differs between pyjnius builds (JNI uses 'B' for byte, some builds
+    accept lowercase), so try both rather than guessing wrong at runtime.
     """
     from jnius import autoclass, jarray
 
-    PythonActivity = autoclass("org.kivy.android.PythonActivity")
-    resolver = PythonActivity.mActivity.getContentResolver()
     stream = resolver.openInputStream(uri)
     if stream is None:
-        raise SafUnavailable("could not open the selected file")
+        raise SafUnavailable("openInputStream returned null")
 
     try:
         ByteArrayOutputStream = autoclass("java.io.ByteArrayOutputStream")
         bos = ByteArrayOutputStream()
-        buf = jarray("b")(65536)
         try:
+            buf = None
+            for letter in ("B", "b"):
+                try:
+                    buf = jarray(letter)(65536)
+                    break
+                except Exception:
+                    continue
+            if buf is None:
+                raise SafUnavailable("cannot allocate a Java byte[] buffer")
+
             while True:
                 n = stream.read(buf)
                 if n is None or n < 0:
                     break
-                bos.write(buf, 0, n)
+                bos.write(buf, 0, int(n))
         finally:
-            stream.close()
+            try:
+                stream.close()
+            except Exception:
+                pass
         return bytes(bos.toByteArray())
     finally:
         try:
             bos.close()
         except Exception:
             pass
+
+
+def read_uri(uri) -> bytes:
+    """Read the whole content of a content:// Uri.
+
+    Going through ContentResolver is mandatory: Uri.getPath() is not a
+    filesystem path and Python's open() cannot read it on modern Android.
+    """
+    from jnius import autoclass
+
+    PythonActivity = autoclass("org.kivy.android.PythonActivity")
+    activity = PythonActivity.mActivity
+    if activity is None:
+        raise SafUnavailable("no activity")
+    resolver = activity.getContentResolver()
+    if resolver is None:
+        raise SafUnavailable("no content resolver")
+
+    last = None
+    for reader in (_read_via_fd, _read_via_stream):
+        try:
+            return reader(resolver, uri)
+        except Exception as exc:          # noqa: BLE001 - try the other path
+            last = exc
+    raise SafUnavailable(f"{type(last).__name__}: {last}") from last
 
 
 def display_name(uri) -> str:
