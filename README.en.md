@@ -23,7 +23,7 @@ firmware.
 **Download**: a prebuilt APK is published on the
 [Releases](../../releases) page of this repository — grab the latest one and
 install it. **Earlier versions are kept on the same page**, so you can always
-roll back (see [Version history](#version-history)).
+roll back (see [Changelog](#changelog)).
 
 Every run of the **Build Android APK** workflow publishes the freshly built APK
 to Releases automatically, with **bilingual (zh/en) release notes** carrying the
@@ -64,32 +64,51 @@ is pure Python and was carried over unchanged. Only the byte pipe underneath
 was replaced. Both the CCID and the FIDO HID channel are implemented and
 listed automatically on scan.
 
-## Version history
+## Changelog
 
-Every publish now **creates a new release instead of overwriting the old one**,
-so if an update misbehaves you can grab any earlier version from the Releases
-page.
+What changed in each version lives in **[CHANGELOG.md](CHANGELOG.md)**
+(English: [CHANGELOG.en.md](CHANGELOG.en.md)); this file does not repeat it.
 
-| Version | Main changes |
-| --- | --- |
-| **v0.2.0** | New **Flash firmware** page (UF2 sniffing + ESP32 ROM serial protocol); fixed the status bar covering the top row; fixed long English button labels being clipped; docs now cover the RP2040/RP2350/ESP32-S2/S3 differences; release notes are bilingual (zh/en) |
-| **v0.1.0** | First version. USB OTG connection, three-channel scan (CCID / rescue / FIDO HID), device info, PHY read/write, secure boot, reboot and flashing mode, WINK, protocol self-test, bilingual UI |
-
-The full list lives on the [Releases](../../releases) page.
+Every publish **creates a new release instead of overwriting the old one**, so
+if an update misbehaves you can grab any earlier version from the
+[Releases](../../releases) page. The release body is **extracted from the
+changelog by the workflow** - no need to write it by hand.
 
 ### Publishing a new version
 
-The version lives in the `version` field of `buildozer.spec`; the workflow
-derives the release tag from it:
+**You only really need to edit one file**: add a section for the new version to
+`CHANGELOG.md` and `CHANGELOG.en.md`:
 
-```ini
-version = 0.2.0    # bump to 0.3.0 for the next one
+```markdown
+## [v0.3.0] - 2026-10-01
+
+### Added
+- something
 ```
 
-**Raise this number before publishing.** When the tag already exists the
-workflow **fails with a message by default** rather than silently overwriting —
-that is what keeps earlier versions around. If you genuinely want to replace
-the current build in place, tick **overwrite** when running the workflow.
+The workflow **automatically** reads the version out of the changelog, writes
+it into `buildozer.spec`, and derives the release tag from it. Editing
+`buildozer.spec` by hand is unnecessary — and if you do, the changelog wins.
+
+There is also a **bump** input when running the workflow:
+
+| Option | Behaviour |
+| --- | --- |
+| `auto` (default) | Take the newest version from the changelog |
+| `patch` / `minor` / `major` | Increment the version already in `buildozer.spec` |
+| `none` | Leave the version alone and use whatever the spec says |
+
+The bump is committed back **only after a successful build and publish**; if
+the build fails the job stops early and no version number is consumed.
+
+When the tag already exists the workflow **fails with a message by default**
+rather than silently overwriting — that is what keeps earlier versions around.
+If you genuinely want to replace the current build in place, tick
+**overwrite** when running the workflow.
+
+If the changelog has no section for that version, the workflow only emits a
+warning and produces a placeholder note — it does **not** fail, but do fill the
+entry in afterwards.
 
 ### Version numbering convention
 

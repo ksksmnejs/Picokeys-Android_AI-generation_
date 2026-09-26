@@ -17,7 +17,7 @@
 启用的 USB 接口）、让 LED 闪一下、重启设备，或进入刷机模式写入新固件。
 
 **下载**：已编译好的 APK 在本仓库的 [Releases](../../releases) 页面，取最新版本安装即可；
-**早期版本也保留在同一个页面**，随时可以回退（见[版本历史](#版本历史)）。
+**早期版本也保留在同一个页面**，随时可以回退（见[更新日志](#更新日志)）。
 
 每次跑 **Build Android APK** 工作流，编译好的 APK 会**自动发布到 Releases**，
 release notes 自动生成且为**中英双语**（含版本号、commit 号、安装步骤与注意事项）。
@@ -50,29 +50,46 @@ release notes 自动生成且为**中英双语**（含版本号、commit 号、�
 设备协议本身——CCID 组帧、APDU、PHY 的 TLV、CTAPHID——是纯 Python，原样沿用未作修改，
 只替换了底层的"字节管道"。CCID 与 FIDO HID 两条通道均已实现，扫描时自动列出。
 
-## 版本历史
+## 更新日志
 
-每次发布都会**新建一个 release，不再覆盖旧的**。所以升级后如果新版本有问题，
-可以回到 Releases 页面下载之前的任何一个版本。
+各版本改了什么写在 **[CHANGELOG.md](CHANGELOG.md)**（英文见
+[CHANGELOG.en.md](CHANGELOG.en.md)），本文件不重复记录。
 
-| 版本 | 主要变化 |
-| --- | --- |
-| **v0.2.0** | 新增「固件刷写」页（UF2 识别 + ESP32 ROM 串口协议）；修复状态栏遮挡顶部内容；修复长英文按钮文字被截断；文档补齐 RP2040/RP2350/ESP32-S2/S3 差异；release notes 改为中英双语 |
-| **v0.1.0** | 首个版本。USB OTG 连接、三通道扫描（CCID / rescue / FIDO HID）、读取设备信息、PHY 配置读写、安全启动、重启与进入刷机模式、WINK、协议自检、中英双语界面 |
-
-完整列表见 [Releases](../../releases) 页面。
+每次发布都会**新建一个 release，不再覆盖旧的**，所以升级后如果新版本有问题，
+可以回到 [Releases](../../releases) 页面下载之前的任何一个版本。
+Releases 页面的正文由工作流**从 CHANGELOG 自动抽取**，不需要手写。
 
 ### 发布新版本
 
-版本号写在 `buildozer.spec` 的 `version` 字段，工作流用它生成 release tag：
+**发布前其实只需要改一个文件**：`CHANGELOG.md` 与 `CHANGELOG.en.md` 里加一个新版本
+的段落，写明改了什么：
 
-```ini
-version = 0.2.0    # 改成 0.3.0 就是下一个版本
+```markdown
+## [v0.3.0] - 2026-10-01
+
+### 新增
+- 某某功能
 ```
 
-**发布前请先提升这个数字。** 工作流在检测到同名 tag 已存在时，默认会**直接失败并提示**，
-而不是静默覆盖——这正是为了保住历史版本。如果确实想原地替换当前版本，
-在 Run workflow 时勾选 **overwrite** 即可。
+工作流会**自动**从 CHANGELOG 里取出版本号，写进 `buildozer.spec`，再拿它生成 release tag。
+`buildozer.spec` 不用手改——改了也没关系，CHANGELOG 优先。
+
+Run workflow 时还有个 **bump** 选项可以换策略：
+
+| 选项 | 行为 |
+| --- | --- |
+| `auto`（默认） | 取 CHANGELOG 里最新的版本号 |
+| `patch` / `minor` / `major` | 在 `buildozer.spec` 现有版本上递增 |
+| `none` | 完全不动版本号，用 spec 里的值 |
+
+版本推进会在**构建并发布成功之后**才提交回仓库；构建失败的话 job 提前终止，
+不会白吃掉一个版本号。
+
+工作流在检测到同名 tag 已存在时，默认会**直接失败并提示**，而不是静默覆盖——
+这正是为了保住历史版本。如果确实想原地替换当前版本，Run workflow 时勾选 **overwrite**。
+
+如果 CHANGELOG 里没有对应版本的段落，工作流只会打一条 warning 并生成一份占位说明，
+**不会失败**——但记得事后补上。
 
 ### 版本号的习惯
 
