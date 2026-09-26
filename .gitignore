@@ -1,0 +1,25 @@
+# Buildozer / python-for-android working directory.
+# Grows to several GB and is pure cache - never commit it.
+.buildozer/
+
+# Build output
+bin/
+dist/
+*.apk
+*.aab
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Pages site directory, rebuilt from scratch by the workflow
+_site/
+
+# Local release staging
+release/
+
+# Editor / OS noise
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
