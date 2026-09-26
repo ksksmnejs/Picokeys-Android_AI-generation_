@@ -45,6 +45,11 @@ Run workflow 时的可选开关：
 - 文档补齐 RP2040 / RP2350 / ESP32-S2 / S3 四种芯片的差异
 - 新增 `CHANGELOG.md`，发布说明改为自动生成
 - 版本号可由工作流自动推进：在 CHANGELOG 里加新段落即可，`buildozer.spec` 无需手改
+- **从 GitHub 获取官方固件**：固件页新增入口，直接列出上游开源仓库
+  `polhenarejos/pico-fido` Releases 里的固件，按芯片分类并只显示每块板最新的稳定版，
+  选中后自动下载（需要 `INTERNET` 权限）
+- 不再把开发板称作 PicoKey，改为"开发板"
+- 文档与界面不再描述进入下载模式的按键手势（不同板子方式不同）
 
 ### 修复
 

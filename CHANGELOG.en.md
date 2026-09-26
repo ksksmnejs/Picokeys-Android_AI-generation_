@@ -50,6 +50,13 @@ If the build fails the job stops early and no version number is consumed.
 - Added `CHANGELOG.md`; release notes are now generated from it
 - Version can be advanced automatically: add a new CHANGELOG section and
   `buildozer.spec` is updated for you
+- **Official firmware from GitHub**: new entry on the firmware page that lists
+  release assets from the upstream open-source `polhenarejos/pico-fido` repo,
+  grouped by chip with only the newest stable image per board, and downloads
+  the one you pick (needs the `INTERNET` permission)
+- The board is no longer called "PicoKey" - it is a "board" / "development board"
+- Docs and UI no longer describe button gestures for entering download mode
+  (they differ per board)
 
 ### Fixed
 

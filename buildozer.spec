@@ -45,8 +45,11 @@ android.minapi = 26
 # armeabi-v7a back here only if you need a 32-bit device.
 android.archs = arm64-v8a
 
-# USB host needs no runtime permission, so this stays empty on purpose.
-android.permissions =
+# USB host needs no runtime permission. INTERNET is required for one feature
+# only: listing and downloading official firmware from the upstream GitHub
+# releases. Without it that lookup fails silently (urllib raises on socket
+# creation), which is hard to diagnose on a phone.
+android.permissions = INTERNET
 
 android.allow_backup = True
 

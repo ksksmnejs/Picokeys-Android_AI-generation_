@@ -206,7 +206,7 @@
 <div class="card">
   <div class="row">
     <button id="btnReboot" onclick="reboot(false)" disabled data-i18n="btnReboot">重启设备</button>
-    <button id="btnBootsel" onclick="reboot(true)" disabled data-i18n="btnBootsel">重启到 BOOTSEL</button>
+    <button id="btnBootsel" onclick="reboot(true)" disabled data-i18n="btnBootsel">重启到刷机模式</button>
   </div>
 </div>
 
@@ -259,7 +259,7 @@ const I18N = {
     dangerText:"🚨 危险：Secure Boot 一旦开启，设备只能运行官方签名的固件，无法再刷第三方固件。Secure Lock 写入 OTP，物理固化。两者都无法撤销。ESP32-S3 上这两个功能可能未实现 —— 请先点「读取安全状态」确认设备有响应，再决定是否继续。",
     lblSlot:"密钥槽 0-15", chkLock:"同时启用 Secure Lock",
     chkUnderstand:"我已知晓此操作永久不可逆", lblConfirm:"请输入 CONFIRM 以启用按钮", btnSecure:"设置安全启动",
-    btnReboot:"重启设备", btnBootsel:"重启到 BOOTSEL",
+    btnReboot:"重启设备", btnBootsel:"重启到刷机模式",
     btnClearLog:"清空日志", btnCopyLog:"复制日志",
     tail1:"协议移植自 pypicokey (AGPL-3.0) · 本页为独立实现",
     tail2:"需要 HTTPS + Chrome/Edge · 桌面端可能被系统 CCID 驱动抢占",
@@ -315,7 +315,7 @@ const I18N = {
     stPartial:"部分读取失败",
     warnJtag:"注意：设备名看起来是 ESP32 的 Serial/JTAG 或下载接口，不是 PicoKey 的 CCID 接口。",
     mJtagTitle:"可能选错了设备/模式",
-    mJtagBody:"这台设备自报为 USB JTAG/serial debug unit —— 那是 ESP32-S3 的串口/JTAG 或 ROM 下载接口，不是 PicoKey 固件运行时的 CCID 接口。对它发 CCID 指令不会有任何回应。\n\n常见原因：\n1. 板子正处在下载模式（插着时按住 BOOT 了）—— 拔掉重新插，这次不要按 BOOT\n2. 刷的是别的固件，不是 PicoKey\n\n重新插好后，设备名应该变成 PicoKey 相关字样，VID/PID 也会不同。",
+    mJtagBody:"这台设备自报为 USB JTAG/serial debug unit —— 那是 ESP32-S3 的串口/JTAG 或 ROM 下载接口，不是 PicoKey 固件运行时的 CCID 接口。对它发 CCID 指令不会有任何回应。\n\n常见原因：\n1. 板子正处在下载模式——拔掉重新插，上电时不要按住任何按键\n2. 刷的是别的固件\n\n重新插好后，设备名和 VID/PID 应该都会不同。",
     mTimeoutTitle:"设备没有响应",
     mTimeoutBody:"发出了指令但设备在 2.5 秒内没有回任何数据。通常意味着：\n\n1. 选中的接口不是 PicoKey 的 CCID 接口（比如选成了 ESP32 的下载接口）\n2. 板子卡在下载模式 —— 拔掉重新插，别按 BOOT\n3. 设备正忙或已断开\n\n按钮现在都可用了，可以点「诊断接口」看看设备到底暴露了什么，或「重新读取全部」再试一次。",
     curVid:"当前 VID/PID", curProduct:"当前产品名",
@@ -337,7 +337,7 @@ const I18N = {
     dangerText:"🚨 DANGER: once Secure Boot is enabled the device only runs officially signed firmware — you can never flash third-party firmware again. Secure Lock burns OTP fuses. Neither can be undone. Both may be UNIMPLEMENTED on ESP32-S3 — tap \"Read security\" first and only continue if the device responds.",
     lblSlot:"Key slot 0-15", chkLock:"Also enable Secure Lock",
     chkUnderstand:"I understand this is permanent", lblConfirm:"Type CONFIRM to enable the button", btnSecure:"Set secure boot",
-    btnReboot:"Reboot", btnBootsel:"Reboot to BOOTSEL",
+    btnReboot:"Reboot", btnBootsel:"Reboot to flashing mode",
     btnClearLog:"Clear log", btnCopyLog:"Copy log",
     tail1:"Protocol ported from pypicokey (AGPL-3.0) · independent implementation",
     tail2:"Requires HTTPS + Chrome/Edge · desktop may be blocked by the system CCID driver",

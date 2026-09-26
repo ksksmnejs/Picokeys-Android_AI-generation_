@@ -7,8 +7,8 @@
 
 [简体中文](README.md) | English
 
-An Android app that talks to **PicoKey** devices (Pico HSM / Pico FIDO / Pico
-OpenPGP) over a USB OTG cable. Plug the key into your phone and you can read
+An Android app that talks to a **development board** (one running the Pico HSM /
+Pico FIDO / Pico OpenPGP firmware) over a USB OTG cable. Plug the key into your phone and you can read
 device information, edit the PHY configuration (USB VID/PID, LED pin and
 brightness, enabled USB interfaces), blink the LED, reboot the device, or drop
 it into flashing mode to load new firmware.
@@ -25,7 +25,7 @@ latest one. Older versions stay on the same page so you can roll back; see
 ## AI-generated code
 
 **The code in this repository was written by AI and is not the work of the
-upstream PicoKey authors.** If something misbehaves, suspect this app first —
+upstream firmware authors.** If something misbehaves, suspect this app first —
 not your board and not the firmware.
 
 ---
@@ -33,7 +33,7 @@ not your board and not the firmware.
 ## Verification status
 
 The protocol layer has automated self-test coverage, but **none of this code has
-ever run against a real PicoKey**:
+ever run against a real board**:
 
 - Self-tests and simulated links all pass, but they exercise a **mock device**,
   not real hardware responses.
@@ -53,8 +53,8 @@ security features**.
 
 | Chip | Typical boards | Flashing mechanism | Secure Boot / Lock |
 | --- | --- | --- | --- |
-| **RP2040** | Raspberry Pi Pico / Pico W | UF2 (BOOTSEL turns it into a drive) | ❌ none |
-| **RP2350** | Pico 2, Waveshare RP2350-One/Zero/Tiny | UF2 (BOOTSEL turns it into a drive) | ✅ full |
+| **RP2040** | Raspberry Pi Pico / Pico W | UF2 (becomes a drive in flashing mode) | ❌ none |
+| **RP2350** | Pico 2, Waveshare RP2350-One/Zero/Tiny | UF2 (becomes a drive in flashing mode) | ✅ full |
 | **ESP32-S2** | ESP32-S2 dev boards | esptool / DFU | ⚠️ uncertain |
 | **ESP32-S3** | ESP32-S3 SuperMini, DevKitC | esptool / DFU | ⚠️ uncertain |
 
@@ -70,7 +70,7 @@ If security is the point, use an RP2350 or an ESP32-S3, not an RP2040.
 ### Two ESP32 quirks
 
 **The device name changes in download mode.** There the board reports itself as
-**"USB JTAG/serial debug unit"**, which is not PicoKey's CCID interface and will
+**"USB JTAG/serial debug unit"**, which is not the firmware's CCID interface and
 not answer any command. If you see that name in the log, the board is stuck in
 download mode — **unplug it, press nothing, plug it back in**.
 
@@ -108,7 +108,8 @@ Authenticator can manage the device).
 - **Secure boot** — read status, set the boot key slot, permanent lock
 - **Device information** — platform, product, firmware version, flash usage
 - **Maintenance** — reboot, enter flashing mode, WINK
-- **Firmware flashing** — see [Flashing firmware](#flashing-firmware)
+- **Firmware flashing** — fetch official firmware from GitHub, or use a local
+  file / URL, see [Flashing firmware](#flashing-firmware)
 - **Bilingual UI** — 简体中文 / English switchable at the top; the choice is remembered
 - **Protocol self-test** — runs the stack against a fake USB pipe, no hardware needed
 
@@ -120,9 +121,9 @@ redistribute them. Enter flashing mode and write the image yourself.
 
 ## Usage
 
-1. Connect the PicoKey with an **OTG adapter**. **Press no buttons** — holding
-   BOOT/BOOTSEL while plugging in puts the board into flashing mode, where it is
-   not a PicoKey and the app cannot talk to it.
+1. Connect the board with an **OTG adapter**. **Hold no buttons while powering
+   up** — on some boards that goes straight into flashing mode, where it does not
+   appear as a PicoKey device and the app cannot talk to it.
 2. Open the app → **Scan USB devices**. Every available channel appears.
 3. Tap one to connect. Android shows a USB authorization dialog — **you must
    allow it** (asked only once; if denied, re-enable it in system settings).
@@ -154,12 +155,23 @@ covering two mechanically unrelated paths:
 
 | Board | Underlying mechanism | What this app does |
 | --- | --- | --- |
-| RP2040 / RP2350 | BOOTSEL exposes the flash as a drive; copying a `.uf2` onto it is the whole job | Hands the UF2 to the system file manager, you save it to the `RPI-RP2` / `RP2350` drive |
+| RP2040 / RP2350 | In flashing mode the flash is exposed as a drive; copying a `.uf2` onto it is the whole job | Hands the UF2 to the system file manager, you save it to the `RPI-RP2` / `RP2350` drive |
 | ESP32-S2 / S3 | esptool's ROM serial protocol over USB Serial/JTAG — no UF2 bootloader | Implements that protocol directly; no external tool needed |
 
-Firmware can come from a local file or an https URL. Once loaded the app
-identifies the format (UF2 / ESP image / ZIP / gzip / a web page fetched by
-mistake) and shows the size and target chip.
+Firmware can come from three places:
+
+1. **Official firmware from GitHub** (recommended) — lists the release assets of
+   the upstream open-source repo `polhenarejos/pico-fido`, grouped by chip
+   (RP2040 / RP2350 / ESP32-S2 / ESP32-S3) and showing only the newest stable
+   image per board. Pick one and it downloads.
+2. **A local file** — a `.uf2` or `.bin` you already have.
+3. **An https URL** — paste a link yourself.
+
+Once loaded the app identifies the format (UF2 / ESP image / ZIP / gzip / a web
+page fetched by mistake) and shows the size and target chip.
+
+The firmware is open source; this app only lists what upstream already publishes.
+It does not redistribute, mirror or modify those files.
 
 ⚠️ **Neither flashing path has been verified on real hardware.** On your first
 run, identify the file without flashing and read the log at each step.
@@ -188,7 +200,7 @@ run, identify the file without flashing and read the log at each step.
   was denied. Android asks only once; re-enable it in system settings, or
   reinstall the app.
 - **"USB JTAG/serial debug unit" in the log (ESP32)** — the board is in download
-  mode, not running PicoKey. Unplug, press nothing, plug back in.
+  mode, with the firmware not running. Unplug, press nothing, plug back in.
 - **Secure boot reads back empty on an ESP32** — the feature is probably not
   implemented on that board. Do not force a write; OTP fuses are irreversible.
 

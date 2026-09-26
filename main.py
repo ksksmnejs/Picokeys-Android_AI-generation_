@@ -264,6 +264,11 @@ BoxLayout:
 
             SectionLabel:
                 text: '@@fw_sec_image@@'
+            InfoLabel:
+                text: '@@fw_github_hint@@'
+            MenuButton:
+                text: '@@fw_github@@'
+                on_release: app.fw_github()
             TextInput:
                 id: fw_url
                 hint_text: '@@fw_url_hint@@'
@@ -949,6 +954,67 @@ class PicoKeyApp(App):
             self._fw_accept(data)
 
         self._worker(work, on_ok=ok, busy_text=i18n.t("fw_from_url"))
+
+    def fw_github(self):
+        """List official firmware straight from the upstream GitHub releases."""
+        def work():
+            # Runs in the worker thread: this is a blocking HTTPS call.
+            return flasher.list_official_firmware("fido")
+
+        def ok(items):
+            self.busy = False
+            if not items:
+                self.fw_info_text = i18n.t("fw_github_none")
+                self.log("fw_github: no usable assets")
+                return
+            self._fw_choose_github(items)
+
+        self._worker(work, on_ok=ok, busy_text=i18n.t("fw_github_fetching"))
+
+    def _fw_choose_github(self, items):
+        """Show the picker; the download only starts once one is chosen."""
+        from kivy.factory import Factory
+        from kivy.metrics import dp
+        from kivy.uix.boxlayout import BoxLayout
+        from kivy.uix.popup import Popup
+
+        # MenuButton is a KV dynamic class - it only exists in the Factory,
+        # there is no Python class to import.
+        MenuButton = Factory.get("MenuButton")
+        box = BoxLayout(orientation="vertical", spacing=6, padding=8)
+
+        def pick(entry):
+            popup.dismiss()
+            self._fw_download_github(entry)
+
+        for entry in items:
+            size_kb = entry["size"] // 1024
+            label = i18n.t("fw_github_source",
+                           repo=entry["repo"], tag=entry["tag"])
+            extra = " · " + i18n.t("fw_github_nightly") if entry["prerelease"] else ""
+            btn = MenuButton(
+                text=f"{entry['board']} · {entry['name']}\n{label} · {size_kb} KB{extra}",
+                size_hint_y=None, font_size="13sp", halign="center")
+            btn.bind(on_release=lambda _b, e=entry: pick(e))
+            btn.height = max(dp(52), btn.texture_size[1] + dp(16))
+            box.add_widget(btn)
+
+        popup = Popup(title=i18n.t("fw_github_choose"), content=box,
+                      size_hint=(0.95, 0.85))
+        popup.open()
+
+    def _fw_download_github(self, entry):
+        """Download one release asset, then feed it to the normal path."""
+        def work():
+            return flasher.download_firmware(entry["url"])
+
+        def ok(data):
+            self.busy = False
+            self._fw_accept(data)
+            self.log(f"fw_github: got {entry['name']} ({len(data)} bytes)")
+
+        self._worker(work, on_ok=ok,
+                     busy_text=i18n.t("fw_github_downloading", name=entry["name"]))
 
     def fw_pick(self):
         """Open a simple file chooser popup."""
