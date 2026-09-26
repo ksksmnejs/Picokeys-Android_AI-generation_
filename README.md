@@ -164,6 +164,22 @@ tools/fake_android_check.py 用假 jnius 驱动的集成检查
 - **设备扫得到、一连就失败** — 多半是 USB 权限弹窗被拒。Android 只弹一次，
   拒了要去系统设置里重新允许，或卸载重装 App。
 
+## 固件刷写
+
+App 里多了一个「固件刷写」页（扫描页底部按钮进入）。它处理两种完全不同的机制：
+
+| 板子 | 刷机方式 | 本 App 的做法 |
+|---|---|---|
+| RP2040 / RP2350 | BOOTSEL 后变成一个 U 盘，拷入 .uf2 即可 | 把 UF2 交给系统文件管理器，由你存到 `RPI-RP2` / `RP2350` 盘里 |
+| ESP32-S2 / S3 | USB Serial/JTAG 上的 esptool ROM 串口协议 | 直接实现该协议（SLIP 组帧 + FLASH_BEGIN/DATA/END），不需要外部工具 |
+
+固件可以来自本地文件，也可以填一个 https 地址下载。选好后 App 会识别格式
+（UF2 / ESP 镜像 / ZIP / gzip / 误下载的网页）并显示大小和适用芯片。
+
+⚠️ **这条刷写路径没有在真机上验证过。** ESP32 出错通常可以重来（ROM 下载模式能救回），
+但 UF2 写入走的是系统文件管理器，本身是可靠的。第一次建议只做识别、不刷写，
+先看日志确认每一步。
+
 ## 编译排错
 
 - **报 `unrecognized arguments: --feature ...`** — 说明用了仍在设置 `android.features`

@@ -43,13 +43,14 @@ from kivy.app import App
 from kivy.clock import Clock
 from kivy.core.window import Window
 from kivy.lang import Builder
-from kivy.properties import BooleanProperty, ListProperty, StringProperty
+from kivy.properties import (BooleanProperty, ListProperty, NumericProperty,
+                             StringProperty)
 from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.screenmanager import Screen, ScreenManager
 from kivy.utils import platform
 
-from picokeyapp import detect, fonts, i18n, usbhost
+from picokeyapp import detect, flasher, fonts, i18n, usbhost
 from picokeyapp.pk import PicoKey, PhyData, PhyLedDriver, PhyOpt, PhyUsbItf
 
 _PLACEHOLDER = re.compile(r"@@([a-z_0-9]+)@@")
@@ -119,11 +120,24 @@ KV_RULES = f"""
     color: {_rgba(C_TEXT)}
     bold: (True if self.state == 'down' else False)
 
+# Buttons size themselves to their own text.
+#
+# A Button with the default text_size=None never wraps, so a long label
+# (English strings are noticeably longer than the Chinese ones) is drawn on a
+# single line and clipped by the fixed dp(52) height - the classic "button and
+# text do not match" look. Binding text_size to the width makes the label wrap,
+# and binding height to texture_size lets the button grow to fit the wrapped
+# text instead of cutting it off.
 <MenuButton@Button>:
     font_name: 'AppFont'
     size_hint_y: None
-    height: dp(52)
+    height: max(dp(52), self.texture_size[1] + dp(24))
     font_size: '16sp'
+    # max() guards the first layout pass, where width can still be ~0 and
+    # width - 24 would be a negative text_size.
+    text_size: max(dp(1), self.width - dp(24)), None
+    halign: 'center'
+    valign: 'center'
     background_color: {_rgba(C_SURFACE)}
     background_normal: ''
     background_down: ''
@@ -181,6 +195,126 @@ ScreenManager:
         name: 'device'
     LogScreen:
         name: 'log'
+    FirmwareScreen:
+        name: 'firmware'
+"""
+
+# Firmware page. Kept separate from the device page on purpose: flashing talks
+# to the board in bootloader mode, which is a different USB personality from
+# the running firmware, so mixing the two flows would mean connecting twice.
+KV_FIRMWARE = """
+BoxLayout:
+    orientation: 'vertical'
+    canvas.before:
+        Color:
+            rgba: 0.071, 0.086, 0.110, 1.000
+        Rectangle:
+            pos: self.pos
+            size: self.size
+    # Top padding is dp(12) PLUS the Android status-bar height. Kivy lays out
+    # from y=0 of the window, so without this inset the title row sits under
+    # the clock/notch icons on any modern phone.
+    padding: [dp(12), dp(12) + app.top_inset, dp(12), dp(12)]
+    spacing: dp(8)
+    Label:
+        text: '@@sec_firmware@@'
+        font_size: '20sp'
+        bold: True
+        size_hint_y: None
+        height: dp(36)
+    ScrollView:
+        GridLayout:
+            cols: 1
+            size_hint_y: None
+            height: self.minimum_height
+            spacing: dp(8)
+            padding: 0, dp(4)
+            Label:
+                text: '@@fw_intro@@'
+                size_hint_y: None
+                height: self.texture_size[1]
+                text_size: self.width, None
+                font_size: '14sp'
+                halign: 'left'
+                valign: 'top'
+                color: 0.7, 0.75, 0.8, 1
+            Label:
+                text: '@@fw_warn_unverified@@'
+                size_hint_y: None
+                height: self.texture_size[1]
+                text_size: self.width, None
+                font_size: '13sp'
+                halign: 'left'
+                valign: 'top'
+                color: 1, 0.72, 0.42, 1
+
+            SectionLabel:
+                text: '@@fw_scan_bootloader@@'
+            MenuButton:
+                text: '@@fw_scan_bootloader@@'
+                on_release: app.fw_scan()
+            Label:
+                id: fw_dev
+                text: app.fw_dev_text
+                size_hint_y: None
+                height: self.texture_size[1] + dp(8)
+                text_size: self.width, None
+                font_size: '14sp'
+                halign: 'left'
+                valign: 'top'
+            Label:
+                text: '@@fw_howto_esp@@'
+                size_hint_y: None
+                height: self.texture_size[1]
+                text_size: self.width, None
+                font_size: '13sp'
+                halign: 'left'
+                valign: 'top'
+                color: 0.7, 0.75, 0.8, 1
+
+            SectionLabel:
+                text: '@@fw_pick_file@@'
+            TextInput:
+                id: fw_url
+                hint_text: '@@fw_url_hint@@'
+                size_hint_y: None
+                height: dp(44)
+                multiline: False
+            MenuButton:
+                text: '@@fw_from_url@@'
+                on_release: app.fw_download(fw_url.text)
+            MenuButton:
+                text: '@@fw_pick_file@@'
+                on_release: app.fw_pick()
+            Label:
+                id: fw_info
+                text: app.fw_info_text
+                size_hint_y: None
+                height: self.texture_size[1] + dp(8)
+                text_size: self.width, None
+                font_size: '14sp'
+                halign: 'left'
+                valign: 'top'
+
+            DangerButton:
+                text: '@@fw_flash_esp@@'
+                on_release: app.fw_flash()
+            MenuButton:
+                text: '@@fw_save_uf2@@'
+                on_release: app.fw_save_uf2()
+            Label:
+                text: '@@fw_howto_uf2@@'
+                size_hint_y: None
+                height: self.texture_size[1]
+                text_size: self.width, None
+                font_size: '13sp'
+                halign: 'left'
+                valign: 'top'
+                color: 0.7, 0.75, 0.8, 1
+
+            MenuButton:
+                text: '@@btn_back_scan@@'
+                on_release: app.go('scan')
 """
 
 # Screen bodies. Each one is an ANONYMOUS root widget, deliberately: a rule
@@ -198,7 +332,10 @@ BoxLayout:
         Rectangle:
             pos: self.pos
             size: self.size
-    padding: dp(12)
+    # Top padding is dp(12) PLUS the Android status-bar height. Kivy lays out
+    # from y=0 of the window, so without this inset the title row sits under
+    # the clock/notch icons on any modern phone.
+    padding: [dp(12), dp(12) + app.top_inset, dp(12), dp(12)]
     spacing: dp(10)
     BoxLayout:
         size_hint_y: None
@@ -246,6 +383,9 @@ BoxLayout:
         text: '@@btn_selftest@@'
         on_release: app.selftest()
     MenuButton:
+        text: '@@btn_firmware@@'
+        on_release: app.go('firmware')
+    MenuButton:
         text: '@@btn_logs@@'
         on_release: app.go('log')
 """
@@ -259,7 +399,10 @@ BoxLayout:
         Rectangle:
             pos: self.pos
             size: self.size
-    padding: dp(12)
+    # Top padding is dp(12) PLUS the Android status-bar height. Kivy lays out
+    # from y=0 of the window, so without this inset the title row sits under
+    # the clock/notch icons on any modern phone.
+    padding: [dp(12), dp(12) + app.top_inset, dp(12), dp(12)]
     spacing: dp(6)
     Label:
         id: info
@@ -468,7 +611,10 @@ BoxLayout:
         Rectangle:
             pos: self.pos
             size: self.size
-    padding: dp(12)
+    # Top padding is dp(12) PLUS the Android status-bar height. Kivy lays out
+    # from y=0 of the window, so without this inset the title row sits under
+    # the clock/notch icons on any modern phone.
+    padding: [dp(12), dp(12) + app.top_inset, dp(12), dp(12)]
     spacing: dp(8)
     Label:
         text: '@@log_title@@'
@@ -504,6 +650,10 @@ class DeviceScreen(Screen):
 
 
 class LogScreen(Screen):
+    pass
+
+
+class FirmwareScreen(Screen):
     pass
 
 
@@ -544,6 +694,9 @@ class PicoKeyApp(App):
     log_text = StringProperty("")
     secure_text = StringProperty("")
     curves_text = StringProperty("")
+    # Extra top inset (Kivy dp) so content clears the Android status bar.
+    # 0 on desktop; set from the framework dimension at build time.
+    top_inset = NumericProperty(0)
     lang_values = ListProperty([i18n.LANG_NAMES[c] for c in i18n.LANGS])
     lang_current = StringProperty(i18n.LANG_NAMES[i18n.DEFAULT_LANG])
     # Bound to `disabled:` in the MenuButton rule - greys the buttons out while
@@ -567,6 +720,10 @@ class PicoKeyApp(App):
         self._dev = None
         self._secure = None
         self._phy = None
+        # firmware page state
+        self._fw_data = None
+        self._fw_dev = None
+        self._fw_kind = None
 
     # ------------------------------------------------------------ plumbing
 
@@ -580,6 +737,12 @@ class PicoKeyApp(App):
         # Android class loader attached. Doing it here (UI thread) caches them,
         # which is what lets the USB code run from worker threads later.
         if platform == "android":
+            # Status-bar inset must be read before the screens are built,
+            # otherwise the first layout pass uses 0 and the title row is
+            # drawn under the notch until something forces a re-layout.
+            self.top_inset = usbhost.status_bar_height_dp()
+            if self.top_inset:
+                self.log(i18n.t("diag_inset", value=int(self.top_inset)))
             missing = usbhost.preload_java_classes()
             self.log(i18n.t("diag_preload_title") + ": "
                      + (i18n.t("diag_preload_ok") if not missing
@@ -644,7 +807,8 @@ class PicoKeyApp(App):
         first - the widgets are simply dropped, no Builder state involved.
         """
         root = root if root is not None else self.root
-        for name, template in (("scan", KV_SCAN), ("device", KV_DEVICE), ("log", KV_LOG)):
+        for name, template in (("scan", KV_SCAN), ("device", KV_DEVICE),
+                               ("log", KV_LOG), ("firmware", KV_FIRMWARE)):
             screen = root.get_screen(name)
             old = getattr(screen, "content", None)
             if old is not None:
@@ -745,6 +909,153 @@ class PicoKeyApp(App):
 
     def go(self, name: str):
         self.root.current = name
+
+    # ------------------------------------------------------------ firmware
+
+    fw_dev_text = StringProperty("")
+    fw_info_text = StringProperty("")
+
+    def _fw_reset(self):
+        self._fw_data = None
+        self._fw_kind = None
+        self.fw_info_text = i18n.t("fw_no_file")
+
+    def fw_scan(self):
+        """Look for a board sitting in bootloader mode."""
+        def work():
+            devices = usbhost.enumerate_devices()
+            found = []
+            for dev in devices:
+                kind = flasher.classify_bootloader(dev)
+                if kind:
+                    found.append((kind, dev))
+            return found
+
+        def ok(found):
+            self.busy = False
+            self._fw_dev = None
+            if not found:
+                self.fw_dev_text = i18n.t("fw_no_bootloader")
+                self.log("fw_scan: nothing in bootloader mode")
+                return
+            kind, dev = found[0]
+            self._fw_dev = dev
+            label = i18n.t("fw_kind_uf2") if kind == "uf2" else i18n.t("fw_kind_esp32")
+            self.fw_dev_text = i18n.t("fw_found_bootloader", kind=label, name=dev.label())
+            self.log(f"fw_scan: {kind} -> {dev.label()}")
+
+        self._worker(work, on_ok=ok, busy_text=i18n.t("scanning"))
+
+    def fw_download(self, url: str):
+        """Fetch a firmware image over HTTPS."""
+        url = (url or "").strip()
+        if not url.startswith(("http://", "https://")):
+            self.fw_info_text = i18n.t("fw_unknown")
+            return
+
+        def work():
+            from urllib.request import urlopen, Request
+            req = Request(url, headers={"User-Agent": "PicoKeyManager"})
+            with urlopen(req, timeout=60) as resp:
+                return resp.read()
+
+        def ok(data):
+            self.busy = False
+            self._fw_accept(data)
+
+        self._worker(work, on_ok=ok, busy_text=i18n.t("fw_from_url"))
+
+    def fw_pick(self):
+        """Open a simple file chooser popup."""
+        from kivy.uix.filechooser import FileChooserListView
+        from kivy.uix.popup import Popup
+
+        start = "."
+        if platform == "android":
+            try:
+                from android.storage import primary_external_storage_path
+                start = primary_external_storage_path() or "."
+            except Exception:
+                start = "/sdcard"
+
+        chooser = FileChooserListView(path=start)
+
+        def _picked(_):
+            if not chooser.selection:
+                return
+            path = chooser.selection[0]
+            try:
+                with open(path, "rb") as fh:
+                    self._fw_accept(fh.read())
+            except Exception as exc:
+                self.log(f"fw_pick: {exc}")
+                self.fw_info_text = i18n.t("fw_unknown")
+            popup.dismiss()
+
+        popup = Popup(title=i18n.t("fw_pick_file"), content=chooser,
+                      size_hint=(0.95, 0.9))
+        chooser.bind(on_submit=_picked)
+        popup.open()
+
+    def _fw_accept(self, data: bytes):
+        """Store a firmware image and describe it."""
+        self._fw_data = data
+        info = flasher.sniff(data)
+        self._fw_kind = info["kind"]
+        lines = [f"{i18n.t('fw_kind')}: {info['detail']}",
+                 f"{i18n.t('fw_size')}: {len(data)} bytes"]
+        if info["kind"] == "uf2":
+            lines.append(f"{i18n.t('fw_target')}: "
+                         f"{flasher.uf2_target_family(data)}")
+            if not flasher.uf2_is_valid(data):
+                lines.append("(UF2 blocks look damaged)")
+        if info.get("chip"):
+            lines.append(f"{i18n.t('fw_target')}: {info['chip']}")
+        self.fw_info_text = "\n".join(lines)
+        self.log(f"firmware: {info['kind']}, {len(data)} bytes")
+
+    def fw_flash(self):
+        """Write the image to an ESP32 in download mode."""
+        if not self._fw_data:
+            self.fw_info_text = i18n.t("fw_no_file")
+            return
+        kind = flasher.sniff(self._fw_data)["kind"]
+        if kind != "esp":
+            self.log(f"fw_flash: refusing to flash a '{kind}' image over serial")
+            self.status_text = i18n.t("fw_unknown")
+            return
+        if self._fw_dev is None:
+            self.status_text = i18n.t("fw_no_bootloader")
+            return
+        device = self._fw_dev
+        image = self._fw_data
+
+        def work():
+            flasher.flash_esp32(device, image,
+                                progress=lambda i, n: Clock.schedule_once(
+                                    lambda dt: setattr(
+                                        self, "status_text",
+                                        i18n.t("fw_working", n=int(i * 100 / n)))))
+            return True
+
+        def ok(_):
+            self.busy = False
+            self.status_text = i18n.t("fw_done")
+            self.log("fw_flash: done")
+
+        self._worker(work, on_ok=ok, busy_text=i18n.t("fw_working", n=0))
+
+    def fw_save_uf2(self):
+        """Hand a UF2 to the system file manager (RP2040/RP2350 path)."""
+        if self._fw_kind != "uf2":
+            self.status_text = i18n.t("fw_unknown")
+            return
+        try:
+            flasher.save_via_saf("firmware.uf2")
+            self.status_text = i18n.t("fw_howto_uf2")
+        except Exception as exc:
+            self.log(f"fw_save_uf2: {exc}")
+            self.status_text = i18n.t("fw_saf_failed", err=exc)
 
     # -------------------------------------------------------- worker glue
 
@@ -1164,6 +1475,10 @@ class PicoKeyApp(App):
         self._dev = None
         self._secure = None
         self._phy = None
+        # firmware page state
+        self._fw_data = None
+        self._fw_dev = None
+        self._fw_kind = None
         self.device_text = i18n.t("not_connected")
         self._render_secure_text()
         if not silent:

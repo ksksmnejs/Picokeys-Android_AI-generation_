@@ -52,6 +52,34 @@
   .tail{color:var(--dim);font-size:12px;text-align:center;margin:16px 0}
   details{margin-top:8px}
   summary{cursor:pointer;color:var(--dim);font-size:13px}
+
+  /* ---- modal ---- */
+  #modalMask{position:fixed;inset:0;background:rgba(0,0,0,.62);
+             display:flex;align-items:center;justify-content:center;z-index:99;padding:16px}
+  /* Specificity: #modalMask (1,0,0) beats .hidden (0,1,0), so a bare .hidden
+     would never hide this element and closeModal() would look "unclickable".
+     This selector is (1,1,0) and wins. Do not remove it. */
+  #modalMask.hidden{display:none}
+  #modalBox{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+            max-width:520px;width:100%;max-height:80vh;overflow:auto;
+            padding:16px 18px;box-shadow:0 12px 40px rgba(0,0,0,.5)}
+  #modalTitle{margin:0 0 8px;font-size:17px;display:flex;align-items:center;gap:8px}
+  #modalBody{font-size:14px;line-height:1.65;color:#dbe4ee;white-space:pre-wrap}
+  #modalBody b{color:#fff}
+  #modalFoot{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
+  #modalIcon{font-size:19px}
+  .lv-icon-ok{color:var(--ok)} .lv-icon-warn{color:var(--warn)} .lv-icon-err{color:var(--danger)}
+
+  /* ---- 状态徽标 ---- */
+  .badge{display:inline-flex;align-items:center;gap:5px;font-size:12px;
+         border-radius:999px;padding:3px 9px;border:1px solid var(--line);color:var(--dim)}
+  .badge.on{color:var(--ok);border-color:rgba(34,197,94,.5);background:rgba(34,197,94,.1)}
+  .badge.off{color:var(--dim)}
+  .badge.warn{color:var(--warn);border-color:rgba(245,158,11,.5);background:rgba(245,158,11,.1)}
+  .statusgrid{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .spin{display:inline-block;width:12px;height:12px;border:2px solid var(--dim);
+        border-top-color:var(--accent);border-radius:50%;animation:sp .8s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
@@ -76,18 +104,19 @@
     <button id="btnDisconnect" onclick="disconnect()" disabled data-i18n="btnDisconnect">断开</button>
   </div>
   <div id="devInfo" class="hidden"></div>
+  <div id="devStatus"></div>
   <div class="sub" data-i18n="hintConnect" style="margin-top:8px"></div>
 </div>
 
 <!-- ============ 读 ============ -->
-<h2 data-i18n="secRead">2. 读取当前状态</h2>
+<h2 data-i18n="secRead">2. 开发板状态</h2>
 <div class="card">
   <div class="row">
-    <button onclick="readPhy()" data-i18n="btnReadPhy">读取 PHY 配置</button>
-    <button onclick="readSecure()" data-i18n="btnReadSecure">读取安全状态</button>
-    <button onclick="readFlash()" data-i18n="btnReadFlash">读取 Flash</button>
+    <button id="btnRefresh" onclick="refreshAll()" disabled data-i18n="btnRefresh">重新读取全部</button>
   </div>
+  <div class="sub" data-i18n="hintAuto"></div>
   <div id="phyOut"></div>
+  <div id="flashOut"></div>
   <div id="secOut"></div>
 </div>
 
@@ -95,8 +124,8 @@
 <h2 data-i18n="secWrite">3. 写入配置（可反复修改）</h2>
 <div class="card">
   <div class="row" style="margin-bottom:10px">
-    <button class="primary" onclick="applyYubikey()" data-i18n="btnPresetYk">填入 YubiKey 预设</button>
-    <button class="ghost" onclick="loadCurrent()" data-i18n="btnLoadCurrent">载入当前值</button>
+    <button class="primary" id="btnPresetYk" onclick="applyYubikey()" disabled data-i18n="btnPresetYk">填入 YubiKey 预设</button>
+    <button class="ghost" id="btnLoadCurrent" onclick="loadCurrent()" disabled data-i18n="btnLoadCurrent">载入当前值</button>
   </div>
 
   <label data-i18n="lblVid">VID（十六进制）</label>
@@ -139,7 +168,7 @@
   <div class="chk"><input type="checkbox" id="optNoPwrRst"><span data-i18n="optNoPwrRst">禁用电源复位</span></div>
 
   <div class="row" style="margin-top:12px">
-    <button class="primary" onclick="writePhy()" data-i18n="btnWritePhy">写入 PHY 配置</button>
+    <button class="primary" id="btnWritePhy" onclick="writePhy()" disabled data-i18n="btnWritePhy">写入 PHY 配置</button>
   </div>
   <div class="sub" data-i18n="hintWrite"></div>
 </div>
@@ -176,30 +205,9 @@
 <h2 data-i18n="secMisc">5. 维护</h2>
 <div class="card">
   <div class="row">
-    <button onclick="reboot(false)" data-i18n="btnReboot">重启设备</button>
-    <button onclick="reboot(true)" data-i18n="btnBootsel">重启到 BOOTSEL</button>
+    <button id="btnReboot" onclick="reboot(false)" disabled data-i18n="btnReboot">重启设备</button>
+    <button id="btnBootsel" onclick="reboot(true)" disabled data-i18n="btnBootsel">重启到 BOOTSEL</button>
   </div>
-</div>
-
-<h2 data-i18n="secFw">6. 固件（获取与校验）</h2>
-<div class="card">
-  <div class="banner warn" data-i18n="fwWarn"></div>
-
-  <label data-i18n="lblFwUrl">固件 URL（云端）</label>
-  <input type="text" id="fwUrl" placeholder="https://github.com/.../pico_fido_esp32s3.bin">
-  <div class="row" style="margin-bottom:10px">
-    <button class="primary" onclick="fetchFw()" data-i18n="btnFetchFw">从 URL 下载</button>
-  </div>
-
-  <label data-i18n="lblFwFile">或选择本地固件文件</label>
-  <input type="file" id="fwFile">
-
-  <div id="fwOut"></div>
-  <div class="row" style="margin-top:8px">
-    <button id="btnSaveFw" onclick="saveFw()" disabled data-i18n="btnSaveFw">保存到手机</button>
-  </div>
-  <div class="sub" data-i18n="fwHowto"></div>
-  <div class="sub" data-i18n="fwHowto2"></div>
 </div>
 
 <h2 data-i18n="secLog">日志</h2>
@@ -216,6 +224,16 @@
   <span data-i18n="tail2">需要 HTTPS + Chrome/Edge · 桌面端可能被系统 CCID 驱动抢占</span>
 </div>
 
+<div id="modalMask" class="hidden">
+  <div id="modalBox">
+    <h3 id="modalTitle"><span id="modalIcon"></span><span id="modalTitleText"></span></h3>
+    <div id="modalBody"></div>
+    <div id="modalFoot">
+      <button class="primary" onclick="closeModal()" data-i18n="btnModalOk">知道了</button>
+    </div>
+  </div>
+</div>
+
 <script>
 /* =========================================================================
    PicoKey Commissioner — 单文件 WebUSB 开光工具
@@ -227,7 +245,7 @@ const I18N = {
   zh: {
     title:"PicoKey 开光工具", subtitle:"通过 WebUSB 直接配置 Pico FIDO 设备 · 无需安装 App · 无需编译",
     warnIrreversible:"⚠️ 「安全启动 / 安全锁」写入 OTP 熔丝，永久不可逆。其它项目（VID/PID、产品名、LED）可反复修改。建议顺序：先改 VID/PID 并验证 → 最后才碰安全启动。",
-    secConnect:"1. 连接设备", secRead:"2. 读取当前状态", secWrite:"3. 写入配置（可反复修改）",
+    secConnect:"1. 连接设备", secRead:"2. 开发板状态", secWrite:"3. 写入配置（可反复修改）",
     secDanger:"4. 安全启动 / 安全锁（不可逆）", secMisc:"5. 维护", secLog:"日志",
     btnConnect:"选择 USB 设备", btnDiag:"诊断接口", btnDisconnect:"断开",
     hintConnect:"用 OTG 线把设备插到手机上，然后点上面的按钮。若列表为空：换一根确认能传数据的线、确认设备已供电、确认没被其它 App 占用。",
@@ -272,28 +290,40 @@ const I18N = {
     errNotPowered:"ICC 未激活（需要先上电）",
     autoPowerOn:"检测到 ICC 未激活，自动上电后重试…",
     hintPowerOn:"若持续失败：拔插设备后重试，或点「上电」手动激活。",
-    secFw:"6. 固件（获取与校验）",
-    fwWarn:"本页只负责「取到固件并校验」，不会直接往芯片里写。原因：ESP32-S3 的刷机要么走 esptool 协议（Web Serial，官方 ESP Web Tool 就是这么做的），要么走 DFU；而 DFU 依赖 USB-OTG 外设，ESP32-S3 的内部 PHY 默认连的是 USB Serial/JTAG，只有烧掉 USB_PHY_SEL eFuse 才能切给 OTG —— 那一步是永久不可逆的。所以这里拿到文件后，请用真正懂协议的工具刷。",
-    lblFwUrl:"固件 URL（云端）", lblFwFile:"或选择本地固件文件",
-    btnFetchFw:"从 URL 下载", btnSaveFw:"保存到手机",
-    fwHowto:"取到文件后怎么刷：ESP32-S3 → 用官方 ESP32 Flasher 或 Espressif 的 ESP Web Tool（桌面版 Chrome，走 Web Serial），在它的文件选择里挑这个保存好的文件即可。RP2040/RP2350 的 .uf2 → 按住 BOOTSEL 插入，手机上会多出一个 RPI-RP2 / RP2350 盘符，用文件管理器把 uf2 复制进去即可。",
-    fwHowto2:"URL 下载失败多半是对方服务器没给 CORS 头。可以在浏览器地址栏直接打开那个链接（原生下载不会受 CORS 限制），再用上面的「选择本地固件文件」载入校验。",
-    fwUf2:"UF2（RP2040/RP2350 拖盘固件）", fwEspBin:"ESP 镜像（0xE9 头）", fwUnknown:"未知格式",
-    fwSize:"大小", fwKind:"类型", fwFile2:"文件", fwBytes:"字节",
-    fwEmpty:"文件为空", fwLoaded:"已载入", fwReading:"读取本地文件",
-    fwFetching:"正在下载", fwFetchOk:"下载完成", fwFetchFail:"下载失败",
-    fwCorsHint:"若提示 CORS / Failed to fetch：改在地址栏直接打开该 URL 下载，再用本地文件方式载入。",
-    fwNoUrl:"请先填写 URL", fwNoData:"还没有可保存的固件", fwSaved:"已保存",
-    fwTipUf2:"这是 UF2：按住板子 BOOTSEL 插入，手机上出现 RPI-RP2 / RP2350 盘符后，用文件管理器把文件复制进去即可完成刷写。",
-    fwTipEsp:"这是 ESP 镜像：请用官方 ESP32 Flasher 或 Espressif ESP Web Tool 刷入（桌面 Chrome + Web Serial）。",
-    fwTipArchive:"这是压缩包：请先解压出里面的 .bin 或 .uf2 再用。",
-    fwTipUnknown:"格式未能识别：确认下载的是固件本体而不是网页或 HTML。",
+    btnRefresh:"重新读取全部", btnModalOk:"知道了",
+    hintAuto:"连接成功后会自动读取一次；也可以随时点上面的按钮刷新。",
+    stChannel:"通道", stPowered:"已上电", stYes:"是", stNo:"否",
+    stReading:"读取中…", stDone:"全部读取完成",
+    stFlashUsed:"Flash 已用", stFlashFiles:"文件数",
+    mNoUsbTitle:"浏览器不支持 WebUSB",
+    mNoUsbBody:"WebUSB 是这个页面连接设备的前提，当前浏览器没有提供它。\n\n请用 Android 手机上的 Chrome 或 Edge 打开本页。国内常见的 UC、QQ 浏览器、微信内置浏览器大多不支持。\n\n另外注意：地址必须是 https:// 开头。",
+    mNoHttpsTitle:"页面不在 HTTPS 下",
+    mNoHttpsBody:"浏览器只在安全上下文里开放 WebUSB，当前页面不是。\n\n如果你是通过 GitHub Pages 打开的，地址应该是 https://<用户名>.github.io/<仓库名>/picokey-commissioner.html —— 确认开头是 https，且没有被改成 http。",
+    mNoIntfTitle:"找不到可用接口",
+    mNoIntfBody:"设备上没找到 CCID(0x0B) 或 Vendor(0xFF) 接口，或者接口被系统驱动/其它 App 占用了。\n\n可以试试：\n1. 换一根确认能传数据的线（纯充电线不行）\n2. 拔插设备后重试\n3. 关闭可能占用它的其它应用\n4. 点「诊断接口」看设备到底暴露了什么",
+    mNoPowerTitle:"设备未上电",
+    mNoPowerBody:"已连上接口，但 ICC 状态显示未激活。后续读取大概率会失败。\n\n可以试试：拔插设备后重新连接，或点「上电」手动激活一次。",
+    mGoneTitle:"设备已断开",
+    mGoneBody:"设备从 USB 上消失了（可能是被拔掉，也可能是写入配置后自动重启了）。\n\n如果是刚写入 PHY 配置后断开，那属于正常现象 —— 重新插上再连一次即可。",
+    mPhyTitle:"PHY 配置读取成功",
+    mPhyBody:"已读到当前配置，下方输入框的空白项会自动继承这些值，不会把板子特有的设置冲掉。",
+    mFailTitle:"读取失败",
+    mPhyFailBody:"没能读到 PHY 配置。设备可能正忙、接口被占用，或者需要重新上电。\n\n先看日志里的具体报错，再试试拔插重连。",
+    mSecTitle:"安全启动状态",
+    mSecUnavailBody:"设备对安全状态查询没有返回有效数据。\n\n这通常意味着该固件/芯片上没有实现这个功能（ESP32-S3 上较常见）。\n\n请不要强行写入 —— OTP 熔丝一旦烧错是物理级不可逆的。",
+    mSecOnBody:"注意：这台设备已经开启了安全启动或安全锁，只能运行官方签名的固件。",
+    stPartial:"部分读取失败",
+    warnJtag:"注意：设备名看起来是 ESP32 的 Serial/JTAG 或下载接口，不是 PicoKey 的 CCID 接口。",
+    mJtagTitle:"可能选错了设备/模式",
+    mJtagBody:"这台设备自报为 USB JTAG/serial debug unit —— 那是 ESP32-S3 的串口/JTAG 或 ROM 下载接口，不是 PicoKey 固件运行时的 CCID 接口。对它发 CCID 指令不会有任何回应。\n\n常见原因：\n1. 板子正处在下载模式（插着时按住 BOOT 了）—— 拔掉重新插，这次不要按 BOOT\n2. 刷的是别的固件，不是 PicoKey\n\n重新插好后，设备名应该变成 PicoKey 相关字样，VID/PID 也会不同。",
+    mTimeoutTitle:"设备没有响应",
+    mTimeoutBody:"发出了指令但设备在 2.5 秒内没有回任何数据。通常意味着：\n\n1. 选中的接口不是 PicoKey 的 CCID 接口（比如选成了 ESP32 的下载接口）\n2. 板子卡在下载模式 —— 拔掉重新插，别按 BOOT\n3. 设备正忙或已断开\n\n按钮现在都可用了，可以点「诊断接口」看看设备到底暴露了什么，或「重新读取全部」再试一次。",
     curVid:"当前 VID/PID", curProduct:"当前产品名",
   },
   en: {
     title:"PicoKey Commissioner", subtitle:"Configure Pico FIDO over WebUSB · no app · no compiling",
     warnIrreversible:"⚠️ Secure Boot / Secure Lock burn OTP fuses and are PERMANENT. Everything else (VID/PID, product name, LED) can be changed repeatedly. Recommended order: set VID/PID and verify FIRST → touch secure boot LAST.",
-    secConnect:"1. Connect", secRead:"2. Read current state", secWrite:"3. Write configuration (repeatable)",
+    secConnect:"1. Connect", secRead:"2. Board status", secWrite:"3. Write configuration (repeatable)",
     secDanger:"4. Secure boot / secure lock (IRREVERSIBLE)", secMisc:"5. Maintenance", secLog:"Log",
     btnConnect:"Select USB device", btnDiag:"Diagnose", btnDisconnect:"Disconnect",
     hintConnect:"Plug the device in via an OTG cable, then tap the button. If the list is empty: use a known data-capable cable, make sure the device is powered, and make sure no other app holds it.",
@@ -337,22 +367,34 @@ const I18N = {
     errNotPowered:"ICC not active (power-on required)",
     autoPowerOn:"ICC not active — powering on and retrying…",
     hintPowerOn:"If this keeps failing: unplug/replug, then tap \"Power on\" manually.",
-    secFw:"6. Firmware (fetch & verify)",
-    fwWarn:"This page only fetches and verifies firmware — it does not flash it. Flashing an ESP32-S3 needs the esptool protocol over Web Serial (that is what Espressif's ESP Web Tool does), or DFU; and DFU needs the USB-OTG peripheral, which on the ESP32-S3 is only reachable on the internal PHY after burning the USB_PHY_SEL eFuse — permanent. So grab the file here, then flash it with a tool that speaks the protocol.",
-    lblFwUrl:"Firmware URL (cloud)", lblFwFile:"Or pick a local file",
-    btnFetchFw:"Download from URL", btnSaveFw:"Save to phone",
-    fwHowto:"How to flash after you have the file: ESP32-S3 → use the official ESP32 Flasher or Espressif's ESP Web Tool (desktop Chrome, Web Serial) and pick this saved file there. RP2040/RP2350 .uf2 → hold BOOTSEL while plugging in; an RPI-RP2 / RP2350 drive appears; copy the uf2 onto it with a file manager.",
-    fwHowto2:"If a URL download fails it is usually because the server sends no CORS header. Open the link directly in the address bar (native downloads ignore CORS), then load it back via \"pick a local file\".",
-    fwUf2:"UF2 (RP2040/RP2350 drag-and-drop)", fwEspBin:"ESP image (0xE9 header)", fwUnknown:"Unknown format",
-    fwSize:"size", fwKind:"type", fwFile2:"file", fwBytes:"bytes",
-    fwEmpty:"File is empty", fwLoaded:"Loaded", fwReading:"Reading local file",
-    fwFetching:"Downloading", fwFetchOk:"Download complete", fwFetchFail:"Download failed",
-    fwCorsHint:"On a CORS / Failed to fetch error: open the URL directly in the address bar, then load it via the local file picker.",
-    fwNoUrl:"Enter a URL first", fwNoData:"No firmware loaded yet", fwSaved:"Saved",
-    fwTipUf2:"UF2: hold BOOTSEL while plugging in, then copy this file onto the RPI-RP2 / RP2350 drive with a file manager.",
-    fwTipEsp:"ESP image: flash it with the official ESP32 Flasher or Espressif ESP Web Tool (desktop Chrome + Web Serial).",
-    fwTipArchive:"This is an archive: extract the .bin or .uf2 inside it first.",
-    fwTipUnknown:"Format not recognised — make sure you downloaded the firmware itself, not an HTML page.",
+    btnRefresh:"Re-read all", btnModalOk:"OK",
+    hintAuto:"Read once automatically after connecting; tap the button any time to refresh.",
+    stChannel:"channel", stPowered:"powered", stYes:"yes", stNo:"no",
+    stReading:"reading…", stDone:"All reads finished",
+    stFlashUsed:"flash used", stFlashFiles:"files",
+    mNoUsbTitle:"This browser has no WebUSB",
+    mNoUsbBody:"WebUSB is how this page talks to the device, and this browser does not expose it.\n\nOpen the page in Chrome or Edge on Android. Many bundled/in-app browsers (WeChat, UC, QQ) do not support it.\n\nAlso: the address must start with https://.",
+    mNoHttpsTitle:"Page is not on HTTPS",
+    mNoHttpsBody:"Browsers only expose WebUSB in a secure context, and this page is not one.\n\nIf you are using GitHub Pages the URL should look like https://<user>.github.io/<repo>/picokey-commissioner.html — check that it really starts with https and was not downgraded to http.",
+    mNoIntfTitle:"No usable interface",
+    mNoIntfBody:"No CCID(0x0B) or Vendor(0xFF) interface was found, or the interface is held by a system driver / another app.\n\nThings to try:\n1. Use a cable you know carries data (charge-only cables will not work)\n2. Unplug and reconnect\n3. Close other apps that may hold the device\n4. Tap \"Diagnose\" to see what the device actually exposes",
+    mNoPowerTitle:"Device is not powered on",
+    mNoPowerBody:"The interface is claimed, but the ICC reports it is inactive. Reads will most likely fail.\n\nTry unplugging and reconnecting, or tap \"Power on\" to activate it manually.",
+    mGoneTitle:"Device disconnected",
+    mGoneBody:"The device disappeared from USB — either it was unplugged, or it rebooted on its own after a config write.\n\nIf this happened right after writing PHY config, that is expected: plug it back in and connect again.",
+    mPhyTitle:"PHY config read successfully",
+    mPhyBody:"Current config loaded. Blank fields below inherit these values, so board-specific settings will not be wiped.",
+    mFailTitle:"Read failed",
+    mPhyFailBody:"Could not read PHY config. The device may be busy, the interface may be held, or it may need a power-on.\n\nCheck the log for the exact error, then try unplugging and reconnecting.",
+    mSecTitle:"Secure boot status",
+    mSecUnavailBody:"The device returned no valid data for the security query.\n\nThis usually means the feature is not implemented on this firmware/chip (common on ESP32-S3).\n\nDo NOT force the write — a mis-burned OTP fuse is physically irreversible.",
+    mSecOnBody:"Note: this device already has secure boot or secure lock enabled, so it only runs officially signed firmware.",
+    stPartial:"Some reads failed",
+    warnJtag:"Note: the device name looks like the ESP32 Serial/JTAG or download interface, not PicoKey's CCID interface.",
+    mJtagTitle:"Wrong device or wrong mode?",
+    mJtagBody:"This device reports itself as a USB JTAG/serial debug unit - that is the ESP32-S3 serial/JTAG or ROM-download interface, not the CCID interface PicoKey firmware exposes while running. Sending CCID to it gets no answer at all.\n\nUsual causes:\n1. The board is in download mode (BOOT was held while plugging in) - unplug and replug WITHOUT holding BOOT\n2. Something other than PicoKey firmware is flashed\n\nAfter replugging, the device name should look like PicoKey and the VID/PID will differ.",
+    mTimeoutTitle:"Device did not respond",
+    mTimeoutBody:"A command was sent but nothing came back within 2.5 s. Usually that means:\n\n1. The interface you picked is not PicoKey's CCID interface (e.g. the ESP32 download interface)\n2. The board is stuck in download mode - unplug and replug without holding BOOT\n3. The device is busy or has gone away\n\nAll buttons are usable now: tap \"Diagnose\" to see what the device actually exposes, or \"Re-read all\" to try again.",
     curVid:"Current VID/PID", curProduct:"Current product name",
   }
 };
@@ -387,6 +429,72 @@ function log(msg, level){
 }
 function hex(b){ return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join(' '); }
 function clearLog(){ logEl.innerHTML=''; }
+
+/* ------------------------------- modal -------------------------------
+   Anything the user MUST see goes here instead of only into the log —
+   a red line at the bottom of a scrolling log is easy to miss, especially
+   on a phone. Uses plain text (not innerHTML) so translated strings can
+   never inject markup.
+   ------------------------------------------------------------------- */
+const MODAL_ICON = { ok:'✅', warn:'⚠️', err:'🚨' };
+function showModal(titleKey, bodyKey, level){
+  const mask = document.getElementById('modalMask');
+  const icon = document.getElementById('modalIcon');
+  document.getElementById('modalTitleText').textContent = t(titleKey);
+  document.getElementById('modalBody').textContent = t(bodyKey);
+  icon.textContent = MODAL_ICON[level] || 'ℹ️';
+  icon.className = 'lv-icon-' + (level || 'ok');
+  mask.classList.remove('hidden');
+  log('[modal:' + level + '] ' + t(titleKey), level === 'ok' ? 'ok' : level);
+}
+function closeModal(){
+  document.getElementById('modalMask').classList.add('hidden');
+}
+document.getElementById('modalMask').addEventListener('click', (ev)=>{
+  if (ev.target.id === 'modalMask') closeModal();
+});
+
+/* ------------------------------- status badges -------------------------------
+   Board status is fetched automatically on connect, so the user does not have
+   to know which of the three read commands to press first.
+   -------------------------------------------------------------------------- */
+function badge(text, kind){
+  return '<span class="badge ' + (kind||'off') + '">' + text + '</span>';
+}
+function renderStatus(s){
+  const el = document.getElementById('devStatus');
+  if (!s){ el.innerHTML = ''; return; }
+  let h = '<div class="statusgrid">';
+  h += badge(t('stChannel') + ': ' + s.channel, 'on');
+  if (s.powered !== undefined) h += badge(t('stPowered') + ': ' + (s.powered ? t('stYes') : t('stNo')), s.powered ? 'on' : 'warn');
+  if (s.product) h += badge(s.product, 'on');
+  h += '</div>';
+  el.innerHTML = h;
+}
+
+async function refreshAll(){
+  if (!device){ log(t('noDevice'),'warn'); return; }
+  const btn = document.getElementById('btnRefresh');
+  btn.disabled = true;
+  document.getElementById('devStatus').innerHTML =
+    '<div class="statusgrid"><span class="badge"><span class="spin"></span> ' + t('stReading') + '</span></div>';
+  try {
+    const phy = await readPhy(true);
+    await readFlash(true);
+    await readSecure(true);
+    if (phy){
+      log(t('stDone'), 'ok');
+    } else {
+      log(t('stPartial'), 'warn');
+      showModal('mTimeoutTitle','mTimeoutBody','warn');
+    }
+  } catch(e){
+    log('refresh: ' + e.message, 'warn');
+  }
+  btn.disabled = !device;
+  renderStatus(boardStatus);
+}
+
 function copyLog(){
   navigator.clipboard && navigator.clipboard.writeText(logEl.innerText);
   log('copied', 'dim');
@@ -399,6 +507,20 @@ let epIn = null;   // bulk IN  endpoint number
 let epOut = null;  // bulk OUT endpoint number
 let seq = 0;       // CCID bSeq
 let currentPhy = null;
+let boardStatus = {};   // auto-fetched board state, shown as badges
+
+/* Buttons that do nothing until a device is connected. Keeping them enabled
+   and erroring on click is worse UX: a greyed button explains itself. */
+const GATED = ['btnRefresh','btnPresetYk','btnLoadCurrent','btnWritePhy',
+               'btnReboot','btnBootsel'];
+function setGated(enabled){
+  for (const id of GATED){
+    const el = document.getElementById(id);
+    if (el) el.disabled = !enabled;
+  }
+  // btnSecure has an extra CONFIRM gate on top of "device connected".
+  if (typeof updateSecureGate === 'function') updateSecureGate();
+}
 
 const AID_SELECT = [0x00,0xA4,0x04,0x04,0x08,0xA0,0x58,0x3F,0xC1,0x9B,0x7E,0x4F,0x21,0x00];
 const SW_OK = 0x9000;
@@ -432,19 +554,53 @@ async function connect(){
   try { await device.open(); } catch(e){ log('open failed: '+e.message,'err'); return; }
 
   const ok = await pickInterface();
-  if (ok){
-    try { await iccPowerOn(); }
-    catch(e){ log('IccPowerOn: ' + e.message, 'warn'); log(t('hintPowerOn'), 'dim'); }
+  if (!ok){
+    showModal('mNoIntfTitle','mNoIntfBody','err');
+    try { await device.close(); } catch(e){}
+    resetUi();
+    return;
   }
 
+  // Enable the UI FIRST. Nothing below may block the buttons: a stalled
+  // transfer used to leave every control greyed out forever, because
+  // setGated(true) sat after an await that never settled.
   device.addEventListener('disconnect', ()=>{
-    log(t('disconnected'),'warn'); resetUi();
+    log(t('disconnected'),'warn');
+    showModal('mGoneTitle','mGoneBody','warn');
+    resetUi();
   });
 
   document.getElementById('btnDiag').disabled = false;
   document.getElementById('btnPowerOn').disabled = false;
   document.getElementById('btnDisconnect').disabled = false;
+  setGated(true);
   showDevInfo();
+
+  boardStatus = { channel: 'CCID/0x0B' };
+  renderStatus(boardStatus);
+
+  // An ESP32-S3 presenting as "USB JTAG/serial debug unit" is its
+  // Serial/JTAG or ROM-download interface, not the PicoKey CCID applet.
+  // Talking CCID to it will never get an answer.
+  const nm = ((device.manufacturerName||'') + ' ' + (device.productName||'')).toLowerCase();
+  if (nm.includes('jtag') || nm.includes('serial debug')){
+    log(t('warnJtag'), 'warn');
+    showModal('mJtagTitle','mJtagBody','warn');
+  }
+
+  let powered = false;
+  try { powered = await iccPowerOn(); }
+  catch(e){ log('IccPowerOn: ' + e.message, 'warn'); }
+  boardStatus.powered = powered;
+  renderStatus(boardStatus);
+
+  // Auto-fetch: the user should not have to know which read command to
+  // press first. Everything here is read-only and safe to run unattended.
+  await refreshAll();
+
+  if (!powered){
+    showModal('mNoPowerTitle','mNoPowerBody','warn');
+  }
 }
 
 async function pickInterface(){
@@ -487,11 +643,14 @@ function showDevInfo(){
 }
 
 function resetUi(){
-  device=null; iface=null; epIn=null; epOut=null; currentPhy=null;
+  device=null; iface=null; epIn=null; epOut=null; currentPhy=null; boardStatus={};
   document.getElementById('btnDiag').disabled = true;
   document.getElementById('btnPowerOn').disabled = true;
   document.getElementById('btnDisconnect').disabled = true;
+  setGated(false);
   document.getElementById('devInfo').classList.add('hidden');
+  document.getElementById('devStatus').innerHTML = '';
+  document.getElementById('confirmText').dispatchEvent(new Event('input'));
 }
 
 async function disconnect(){
@@ -543,6 +702,35 @@ class CcidNotPowered extends Error {
   constructor(m){ super(m); this.needPowerOn = true; }
 }
 
+/* ------------------------------------------------------------------
+   WebUSB has no timeout: transferIn() on a silent endpoint stays pending
+   forever, which used to freeze the whole connect flow with all buttons
+   greyed out and no board status. Every bulk transfer now goes through
+   this wrapper so a mute device produces an error instead of a hang.
+   ------------------------------------------------------------------ */
+const USB_TIMEOUT_MS = 2500;
+class UsbTimeout extends Error {
+  constructor(what){ super(what); this.isTimeout = true; }
+}
+function withTimeout(promise, what){
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, rej)=>{ timer = setTimeout(()=>rej(new UsbTimeout(what)), USB_TIMEOUT_MS); })
+  ]).finally(()=>clearTimeout(timer));
+}
+
+async function usbOut(ep, data){
+  const r = await withTimeout(device.transferOut(ep, data), 'transferOut');
+  if (r.status !== 'ok') throw new Error('transferOut: ' + r.status);
+  return r;
+}
+async function usbIn(ep, len){
+  const r = await withTimeout(device.transferIn(ep, len), 'transferIn');
+  if (r.status !== 'ok') throw new Error('transferIn: ' + r.status);
+  return r;
+}
+
 /* PC_to_RDR_IccPowerOn (0x62) — must precede any XfrBlock, otherwise the
    device answers bmICCStatus=1 ("present but inactive"). */
 async function iccPowerOn(){
@@ -555,9 +743,9 @@ async function iccPowerOn(){
   f[7] = 0x00;          // bPowerSelect: automatic
   log('>> IccPowerOn ' + hex(f), 'dim');
 
-  const res = await device.transferOut(epOut, f);
+  const res = await usbOut(epOut, f);
   if (res.status !== 'ok') throw new Error('transferOut: ' + res.status);
-  const rd = await device.transferIn(epIn, 271);
+  const rd = await usbIn(epIn, 271);
   if (rd.status !== 'ok') throw new Error('transferIn: ' + rd.status);
 
   const buf = new Uint8Array(rd.data.buffer);
@@ -577,10 +765,10 @@ async function ccidExchange(apdu){
   const frame = ccidFrame(apdu);
   log('>> ' + hex(frame), 'dim');
 
-  const res = await device.transferOut(epOut, frame);
+  const res = await usbOut(epOut, frame);
   if (res.status !== 'ok') throw new Error('transferOut: ' + res.status);
 
-  const rd = await device.transferIn(epIn, 271);
+  const rd = await usbIn(epIn, 271);
   if (rd.status !== 'ok') throw new Error('transferIn: ' + rd.status);
   const buf = new Uint8Array(rd.data.buffer);
   log('<< ' + hex(buf), 'dim');
@@ -611,6 +799,9 @@ async function sendApdu(apdu){
   try {
     resp = await ccidExchange(apdu);
   } catch(e){
+    // A timeout means the device is mute - retrying after a power-on would
+    // just burn another timeout, so let it surface immediately.
+    if (e && e.isTimeout) throw e;
     if (e && e.needPowerOn){
       log(t('autoPowerOn'), 'warn');
       await iccPowerOn();
@@ -641,50 +832,77 @@ async function selectApplet(){
 }
 
 /* ------------------------------- commands ------------------------------- */
-async function readPhy(){
-  if (!device){ log(t('readFirst'),'warn'); return; }
+async function readPhy(quiet){
+  if (!device){ log(t('readFirst'),'warn'); return null; }
   try{
     await selectApplet();
     // 80 1E P1=01 (phy read), extended Le = 256
     const r = await sendApdu([0x80,0x1E,0x01,0x00,0x00,0x01,0x00]);
-    if (r.sw !== SW_OK){ log(t('swError')+' SW=0x'+r.sw.toString(16),'err'); return; }
+    if (r.sw !== SW_OK){ log(t('swError')+' SW=0x'+r.sw.toString(16),'err'); return null; }
     currentPhy = parsePhy(r.data);
-    log(t('okPhy'),'ok');
+    if (!quiet){
+      log(t('okPhy'),'ok');
+      showModal('mPhyTitle','mPhyBody','ok');
+    }
     renderPhy(currentPhy);
-  }catch(e){ log('readPhy: '+e.message,'err'); }
+    if (currentPhy.usb_product) boardStatus.product = currentPhy.usb_product;
+    renderStatus(boardStatus);
+    return currentPhy;
+  }catch(e){
+    log('readPhy: '+e.message,'err');
+    if (!quiet) showModal('mFailTitle','mPhyFailBody','err');
+    return null;
+  }
 }
 
-async function readSecure(){
-  if (!device){ log(t('readFirst'),'warn'); return; }
+async function readSecure(quiet){
+  if (!device){ log(t('readFirst'),'warn'); return null; }
   try{
     await selectApplet();
     const r = await sendApdu([0x80,0x1E,0x03,0x00,0x00,0x01,0x00]);
-    if (r.sw !== SW_OK){ log(t('swError')+' SW=0x'+r.sw.toString(16),'err'); return; }
+    if (r.sw !== SW_OK){ log(t('swError')+' SW=0x'+r.sw.toString(16),'err'); return null; }
     if (!r.data || r.data.length < 2){
       log(t('secUnavailable'),'warn');
+      boardStatus.secure = 'unavailable';
       document.getElementById('secOut').innerHTML =
         '<div class="kv"><span>secure</span><span>'+t('secUnavailable')+'</span></div>';
-      return;
+      // Important enough to interrupt: on ESP32-S3 this usually means the
+      // feature is not implemented, and forcing the write is a bad idea.
+      if (!quiet) showModal('mSecTitle','mSecUnavailBody','warn');
+      return null;
     }
     const enabled = r.data[0] !== 0, locked = r.data[1] !== 0, bootkey = r.data[2];
     log(t('okSec')+' enabled='+enabled+' locked='+locked+' bootKey='+bootkey,'ok');
+    boardStatus.secure = enabled ? 'enabled' : 'off';
+    boardStatus.secureLocked = locked;
     document.getElementById('secOut').innerHTML =
       '<div class="kv"><span>secure boot</span><span>'+(enabled?'ENABLED':'off')+'</span></div>'+
       '<div class="kv"><span>secure lock</span><span>'+(locked?'LOCKED':'off')+'</span></div>'+
       '<div class="kv"><span>boot key slot</span><span>'+bootkey+'</span></div>';
-  }catch(e){ log('readSecure: '+e.message,'err'); }
+    if (!quiet && (enabled || locked)) showModal('mSecTitle','mSecOnBody','warn');
+    return {enabled, locked, bootkey};
+  }catch(e){
+    log('readSecure: '+e.message,'err');
+    return null;
+  }
 }
 
-async function readFlash(){
-  if (!device){ log(t('readFirst'),'warn'); return; }
+async function readFlash(quiet){
+  if (!device){ log(t('readFirst'),'warn'); return null; }
   try{
     await selectApplet();
     const r = await sendApdu([0x80,0x1E,0x02,0x00,0x00,0x01,0x00]);
-    if (r.sw !== SW_OK){ log(t('swError')+' SW=0x'+r.sw.toString(16),'err'); return; }
+    if (r.sw !== SW_OK){ log(t('swError')+' SW=0x'+r.sw.toString(16),'err'); return null; }
     const d = r.data;
     const u32 = o => (d[o]<<24)|(d[o+1]<<16)|(d[o+2]<<8)|d[o+3];
-    log('flash: free='+u32(0)+' used='+u32(4)+' total='+u32(8)+' files='+u32(12),'ok');
-  }catch(e){ log('readFlash: '+e.message,'err'); }
+    const free=u32(0), used=u32(4), total=u32(8), files=u32(12);
+    log('flash: free='+free+' used='+used+' total='+total+' files='+files,'ok');
+    boardStatus.flash = {free, used, total, files};
+    document.getElementById('flashOut').innerHTML =
+      '<div class="kv"><span>'+t('stFlashUsed')+'</span><span>'+used+' / '+total+' KB</span></div>'+
+      '<div class="kv"><span>'+t('stFlashFiles')+'</span><span>'+files+'</span></div>';
+    return {free, used, total, files};
+  }catch(e){ log('readFlash: '+e.message,'err'); return null; }
 }
 
 function parsePhy(d){
@@ -840,143 +1058,32 @@ async function reboot(bootsel){
   }catch(e){ log('reboot: '+e.message + ' (device may already be rebooting)','warn'); }
 }
 
-/* ------------------------------- firmware -------------------------------
-   Honest scope: this fetches + verifies + saves firmware. It does NOT flash
-   it. Real in-browser flashing of an ESP32-S3 needs the esptool protocol over
-   Web Serial (what Espressif's ESP Web Tool does), or DFU over USB-OTG — and
-   on ESP32-S3 the OTG peripheral is only reachable on the internal PHY after
-   burning the USB_PHY_SEL eFuse, which is permanent. So: get the file here,
-   flash it with a tool that actually speaks the protocol.
-   ----------------------------------------------------------------------- */
-let fwBlob = null, fwName = null;
-
-async function sha256(buf){
-  try {
-    const d = await crypto.subtle.digest('SHA-256', buf);
-    return Array.from(new Uint8Array(d)).map(x=>x.toString(16).padStart(2,'0')).join('');
-  } catch(e){ return '(unavailable)'; }
-}
-
-function sniffFw(buf){
-  const u8 = new Uint8Array(buf);
-  const size = buf.byteLength;
-  if (size >= 8){
-    const dv = new DataView(buf);
-    // UF2: magic0 "UF2\n" (0x0A324655 LE), magic1 0x9E5D5157
-    if (dv.getUint32(0, true) === 0x0A324655 && dv.getUint32(4, true) === 0x9E5D5157){
-      let blocks = null;
-      if (size >= 32){
-        const nBlocks = dv.getUint32(24, true);
-        if (nBlocks > 0 && size % 512 === 0) blocks = size / 512;
-      }
-      return { kind: 'uf2', label: t('fwUf2'), blocks: blocks };
-    }
-  }
-  if (size >= 2 && u8[0] === 0xE9){
-    return { kind: 'espbin', label: t('fwEspBin'), segs: u8[1] };
-  }
-  if (size >= 4 && u8[0] === 0x1F && u8[1] === 0x8B){
-    return { kind: 'gzip', label: 'gzip' };
-  }
-  if (size >= 4 && u8[0] === 0x50 && u8[1] === 0x4B){
-    return { kind: 'zip', label: 'zip' };
-  }
-  return { kind: 'unknown', label: t('fwUnknown') };
-}
-
-async function loadFw(buf, name){
-  if (!buf || buf.byteLength === 0){ log(t('fwEmpty'), 'err'); return; }
-  fwBlob = new Blob([buf]);
-  fwName = name || 'firmware.bin';
-  const info = sniffFw(buf);
-  const sha = await sha256(buf);
-  const head = Array.from(new Uint8Array(buf.slice(0, 16)))
-                    .map(x=>x.toString(16).padStart(2,'0')).join(' ');
-
-  log(t('fwLoaded') + ': ' + fwName + ' (' + buf.byteLength + ' ' + t('fwBytes') + ')', 'ok');
-  log(t('fwKind') + ': ' + info.label, 'dim');
-  log('SHA-256: ' + sha, 'dim');
-  log('head: ' + head, 'dim');
-
-  const rows = [
-    [t('fwFile2'), fwName],
-    [t('fwSize'), buf.byteLength + ' ' + t('fwBytes')],
-    [t('fwKind'), info.label],
-    ['SHA-256', sha.slice(0,32) + '…'],
-  ];
-  if (info.blocks) rows.push(['UF2 blocks', info.blocks]);
-  if (info.segs !== undefined) rows.push(['segments', info.segs]);
-
-  let extra = '';
-  if (info.kind === 'uf2'){
-    extra = t('fwTipUf2');
-  } else if (info.kind === 'espbin'){
-    extra = t('fwTipEsp');
-  } else if (info.kind === 'zip' || info.kind === 'gzip'){
-    extra = t('fwTipArchive');
-  } else {
-    extra = t('fwTipUnknown');
-  }
-
-  document.getElementById('fwOut').innerHTML =
-    rows.map(r=>'<div class="kv"><span>'+r[0]+'</span><span>'+r[1]+'</span></div>').join('') +
-    '<div class="sub" style="margin-top:8px">'+extra+'</div>';
-  document.getElementById('btnSaveFw').disabled = false;
-}
-
-async function fetchFw(){
-  const url = (document.getElementById('fwUrl').value || '').trim();
-  if (!url){ log(t('fwNoUrl'), 'warn'); return; }
-  log(t('fwFetching') + ': ' + url, 'dim');
-  try {
-    const resp = await fetch(url, { mode: 'cors' });
-    if (!resp.ok) throw new Error('HTTP ' + resp.status + ' ' + resp.statusText);
-    const buf = await resp.arrayBuffer();
-    const name = url.split('/').pop().split('?')[0] || 'firmware.bin';
-    await loadFw(buf, name);
-    log(t('fwFetchOk'), 'ok');
-  } catch(e){
-    log(t('fwFetchFail') + ': ' + e.message, 'err');
-    log(t('fwCorsHint'), 'dim');
-  }
-}
-
-document.getElementById('fwFile').addEventListener('change', async (ev)=>{
-  const f = ev.target.files && ev.target.files[0];
-  if (!f) return;
-  log(t('fwReading') + ': ' + f.name, 'dim');
-  try {
-    const buf = await f.arrayBuffer();
-    await loadFw(buf, f.name);
-  } catch(e){ log('read file: ' + e.message, 'err'); }
-});
-
-function saveFw(){
-  if (!fwBlob){ log(t('fwNoData'), 'warn'); return; }
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(fwBlob);
-  a.download = fwName || 'firmware.bin';
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-  log(t('fwSaved') + ': ' + fwName, 'ok');
-}
-
 /* ------------------------------- init ------------------------------- */
-document.getElementById('confirmText').addEventListener('input', ()=>{
-  const ok = document.getElementById('chkUnderstand').checked &&
-             document.getElementById('confirmText').value.trim().toUpperCase()==='CONFIRM';
-  document.getElementById('btnSecure').disabled = !ok;
-});
-document.getElementById('chkUnderstand').addEventListener('change', ()=>{
-  document.getElementById('confirmText').dispatchEvent(new Event('input'));
-});
+/* The secure-boot button has two gates: a device must be connected AND the
+   CONFIRM handshake must be complete. Both are re-evaluated here. */
+function updateSecureGate(){
+  const hasDev = !!device;
+  const confirmed = document.getElementById('chkUnderstand').checked &&
+                    document.getElementById('confirmText').value.trim().toUpperCase()==='CONFIRM';
+  document.getElementById('btnSecure').disabled = !(hasDev && confirmed);
+}
+document.getElementById('confirmText').addEventListener('input', updateSecureGate);
+document.getElementById('chkUnderstand').addEventListener('change', updateSecureGate);
 
 setLang('zh');
+setGated(false);
+// Belt and braces: the modal must start hidden even if the stylesheet fails
+// to load or someone edits the markup. Without this a stuck overlay would
+// swallow every tap on the page.
+closeModal();
+
+/* Fatal, page-wide problems pop up instead of hiding in the log. */
 if (!navigator.usb){
   log(t('noWebUSB'),'err');
+  showModal('mNoUsbTitle','mNoUsbBody','err');
 } else if (!window.isSecureContext){
   log(t('notSecure'),'err');
+  showModal('mNoHttpsTitle','mNoHttpsBody','err');
 } else {
   log('WebUSB ready. ' + t('hintConnect'),'dim');
 }
