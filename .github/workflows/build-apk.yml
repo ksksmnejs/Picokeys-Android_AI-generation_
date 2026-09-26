@@ -184,6 +184,29 @@ jobs:
             ls -la bin/ || true
             exit 1
           fi
+
+          # The WebUSB commissioner is shipped next to the APK on purpose: it
+          # needs zero compiling and works straight from GitHub Pages, which
+          # is the only realistic path for someone without a PC.
+          #
+          # Missing HTML is NOT an error - it just means the file has not been
+          # committed yet, and the release should still carry the APK.
+          has_html=false
+          for cand in picokey-commissioner.html \
+                      docs/picokey-commissioner.html \
+                      tools/picokey-commissioner.html; do
+            if [ -f "$cand" ]; then
+              cp "$cand" release/picokey-commissioner.html
+              has_html=true
+              echo "found commissioner HTML at: $cand"
+              break
+            fi
+          done
+          if [ "$has_html" = "false" ]; then
+            echo "::warning::picokey-commissioner.html not found in the repo - releasing APK only"
+          fi
+          echo "has_html=$has_html" >> "$GITHUB_OUTPUT"
+
           ls -la release/
 
       # Kept as well: artifacts survive even if the release step is skipped or
@@ -194,6 +217,31 @@ jobs:
           name: picokey-manager-debug
           path: ${{ steps.locate.outputs.dir }}/bin/*.apk
           if-no-files-found: error
+
+      # Runs unconditionally. The point is to make the single most confusing
+      # failure - "nothing showed up in Releases" - self-explaining: if the
+      # publish flag is off or the step is skipped, the log says so instead of
+      # leaving you to guess from a stale release timestamp.
+      - name: Report publish decision
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.assets.outputs.tag }}
+          VER: ${{ steps.assets.outputs.version }}
+          PUBLISH: ${{ inputs.publish }}
+          HAS_HTML: ${{ steps.assets.outputs.has_html }}
+        run: |
+          echo "=== publish decision ==="
+          echo "  tag          : ${TAG:-(none)}"
+          echo "  version      : ${VER:-(none)}"
+          echo "  publish flag : ${PUBLISH:-(none)}"
+          echo "  html asset   : ${HAS_HTML:-(none)}"
+          if [ "${PUBLISH}" != "true" ]; then
+            echo "::warning::publish=false, so NO release will be created or updated."
+            echo "        The APK is still available from the 'picokey-manager-debug' artifact."
+          fi
+          echo "=== current releases on this repo ==="
+          gh release list --limit 20 || echo "(could not list releases - check GITHUB_TOKEN permissions)"
 
       # ------------------------------------------------------------- release
       - name: Build release notes
@@ -240,6 +288,16 @@ jobs:
           2. 允许浏览器 / 文件管理器"安装未知应用"的权限。
           3. 打开 App，点 **扫描 USB 设备**，并在弹窗里点 **允许**。
 
+          ### 本 release 里的两个文件
+
+          - `picokey-manager-${TAG}-arm64-debug.apk` —— 安卓 App，装到手机上用（需要 OTG 转接线）。
+          - `picokey-commissioner.html` —— **免安装、免编译**的网页版开光工具。把它放到仓库根目录并开启
+            GitHub Pages，然后用手机 Chrome 打开
+            `https://<用户名>.github.io/<仓库名>/picokey-commissioner.html` 即可，
+            不需要装任何 App，也不必等 Actions 编译。
+
+          两者功能重叠，网页版更快；App 的优势是**完全离线**，不依赖任何服务器。
+
           ### 注意事项
 
           - **debug 构建**，使用 debug 签名，安装时手机可能会提示风险。
@@ -264,6 +322,16 @@ jobs:
           1. Download the APK below.
           2. Allow "install from unknown sources" for your browser/files app.
           3. Open the app, tap **Scan USB devices**, and **allow** the USB prompt.
+
+          ### The two files in this release
+
+          - `picokey-manager-${TAG}-arm64-debug.apk` - the Android app (needs an OTG adapter).
+          - `picokey-commissioner.html` - a **zero-install, zero-compile** WebUSB commissioner.
+            Commit it at the repo root, turn on GitHub Pages, then open
+            `https://<user>.github.io/<repo>/picokey-commissioner.html` in Chrome on your phone.
+            No app to install, no Actions run to wait for.
+
+          They overlap; the HTML is the faster route, the app's edge is that it works fully offline.
 
           ### Caveats
 
@@ -307,17 +375,27 @@ jobs:
           if [ "${{ inputs.draft }}" = "true" ]; then FLAGS+=(--draft); fi
           if [ "${{ inputs.prerelease }}" = "true" ]; then FLAGS+=(--prerelease); fi
 
+          ASSETS=(release/*.apk)
+          if [ -f release/picokey-commissioner.html ]; then
+            ASSETS+=(release/picokey-commissioner.html)
+          fi
+          echo "uploading: ${ASSETS[@]}"
+
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "release $TAG exists - replacing the APK"
-            gh release upload "$TAG" release/*.apk --clobber
+            echo "release $TAG exists - replacing the built assets"
+            # --clobber only overwrites same-named files; anything you added by
+            # hand stays untouched.
+            gh release upload "$TAG" "${ASSETS[@]}" --clobber
             # keep notes in sync with this build
             gh release edit "$TAG" --notes-file release/notes.md ${FLAGS[@]+"${FLAGS[@]}"}
           else
             echo "creating release $TAG"
-            gh release create "$TAG" release/*.apk \
+            gh release create "$TAG" "${ASSETS[@]}" \
               --title "PicoKey Manager $VER" \
               --notes-file release/notes.md ${FLAGS[@]+"${FLAGS[@]}"}
           fi
 
           echo "=== release URL ==="
           gh release view "$TAG" --json url --jq '.url'
+          echo "=== assets now in $TAG ==="
+          gh release view "$TAG" --json assets --jq '.assets[] | "  \(.name)  \(.size) bytes"'
