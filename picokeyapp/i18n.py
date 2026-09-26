@@ -232,8 +232,8 @@ STRINGS.update({
     "btn_firmware": {"zh": "固件刷写", "en": "Flash firmware"},
     "sec_firmware": {"zh": "固件刷写", "en": "Firmware"},
     "fw_intro": {
-        "zh": "给板子刷固件。RP2040/RP2350 用 UF2（进 BOOTSEL 后交给文件管理器），ESP32 走串口下载协议。",
-        "en": "Flash firmware onto the board. RP2040/RP2350 take UF2 (hand it to the file manager after BOOTSEL); ESP32 uses the serial download protocol.",
+        "zh": "给板子刷固件。RP2040/RP2350 用 UF2 文件，ESP32 走串口下载协议——两者机制完全不同，App 会根据识别结果走对应流程。",
+        "en": "Flash firmware onto the board. RP2040/RP2350 take a UF2 file, ESP32 uses the serial download protocol — mechanically unrelated, and this app picks the right flow from the detected format.",
     },
     "fw_pick_file": {"zh": "选择固件文件", "en": "Pick firmware file"},
     "fw_from_url": {"zh": "从 URL 下载", "en": "Download from URL"},
@@ -254,13 +254,19 @@ STRINGS.update({
     "fw_flash_esp": {"zh": "刷入 ESP32（会覆盖现有固件）", "en": "Flash ESP32 (overwrites current firmware)"},
     "fw_save_uf2": {"zh": "交给文件管理器保存（RP2040/RP2350）", "en": "Save via file manager (RP2040/RP2350)"},
     "fw_scan_bootloader": {"zh": "扫描处于下载模式的设备", "en": "Scan for a device in download mode"},
-    "fw_howto_esp": {
-        "zh": "按住 BOOT 键插上板子，让它进入下载模式，再点“扫描处于下载模式的设备”。",
-        "en": "Hold BOOT while plugging the board in to enter download mode, then scan.",
+    # 分区标题（三个小节，替代原来散落的说明文字）
+    "fw_sec_device": {"zh": "1. 选择板子", "en": "1. Pick the board"},
+    "fw_sec_image": {"zh": "2. 选择固件", "en": "2. Pick the firmware"},
+    "fw_sec_write": {"zh": "3. 写入", "en": "3. Write"},
+    # 不再在 UI 里讲具体手势：不同板子进下载模式的方式不同，说死会误导。
+    # 只提示"让板子进入刷机模式"，具体做法看板子自己的说明。
+    "fw_enter_mode_hint": {
+        "zh": "让板子进入刷机模式后再点扫描。不同板子进入方式不同，请参考板子的说明。",
+        "en": "Put the board into flashing mode before scanning. The gesture differs per board - check your board's documentation.",
     },
-    "fw_howto_uf2": {
-        "zh": "按住 BOOTSEL 插上板子，手机会多出一个 U 盘（RPI-RP2 / RP2350），把 UF2 存进去即可自动刷写。",
-        "en": "Hold BOOTSEL while plugging in; the phone shows a drive (RPI-RP2 / RP2350). Save the UF2 there and it flashes automatically.",
+    "fw_save_hint": {
+        "zh": "已打开文件管理器，把 UF2 存到板子出现的那个 U 盘里即可。",
+        "en": "File manager opened - save the UF2 to the drive the board exposes.",
     },
     "fw_confirm_body": {
         "zh": "刷写会覆盖板子上的现有固件和所有已存数据。如果这是板上唯一的密钥，先确认别处有备份。确定继续吗？",
