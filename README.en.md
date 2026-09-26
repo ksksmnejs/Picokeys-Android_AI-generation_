@@ -111,8 +111,8 @@ Authenticator can manage the device).
 - **Secure boot** — read status, set the boot key slot, permanent lock
 - **Device information** — platform, product, firmware version, flash usage
 - **Maintenance** — reboot, enter flashing mode, WINK
-- **Firmware flashing** — fetch official firmware from GitHub, or use a local
-  file / URL, see [Flashing firmware](#flashing-firmware)
+- **Firmware flashing** — pick a firmware file with the system file manager and
+  write it, see [Flashing firmware](#flashing-firmware)
 - **Bilingual UI** — 简体中文 / English switchable at the top; the choice is remembered
 - **Protocol self-test** — runs the stack against a fake USB pipe, no hardware needed
 
@@ -157,22 +157,22 @@ covering two mechanically unrelated paths:
 | RP2040 / RP2350 | In flashing mode the flash is exposed as a drive; copying a `.uf2` onto it is the whole job | Hands the UF2 to the system file manager, you save it to the `RPI-RP2` / `RP2350` drive |
 | ESP32-S2 / S3 | esptool's ROM serial protocol over USB Serial/JTAG — no UF2 bootloader | Implements that protocol directly; no external tool needed |
 
-Firmware can come from three places:
+Tap **Pick firmware file** and the app hands the choice to your **system file
+manager** (Android's Storage Access Framework) so you can select a `.uf2` or
+`.bin`.
 
-1. **Official firmware from GitHub** (recommended) — lists the release assets of
-   the upstream open-source repo `polhenarejos/pico-fido`, grouped by chip
-   (RP2040 / RP2350 / ESP32-S2 / ESP32-S3) and showing only the newest stable
-   image per board. Pick one and it downloads.
-2. **A local file** — a `.uf2` or `.bin` you already have.
-3. **An https URL** — paste a link yourself.
+The system file manager sees your whole storage — internal storage, SD card,
+USB OTG drives and cloud providers alike. The app itself never walks the
+directory tree, so it needs no storage permission at all.
 
 Once loaded the app identifies the file type and shows its size; the target chip
 is reported only when it is actually a **UF2** or **ESP image**. If it turns out
 to be a ZIP, a gzip or a web page, the app says so plainly — that means you do
 not have the firmware itself.
 
-The firmware is open source; this app only lists what upstream already publishes.
-It does not redistribute, mirror or modify those files.
+You supply the firmware file yourself (for example, from the releases of the
+upstream open-source repo `polhenarejos/pico-fido`). This app makes no network
+requests and bundles no firmware.
 
 ⚠️ **Neither flashing path has been verified on real hardware.** On your first
 run, identify the file without flashing and read the log at each step.

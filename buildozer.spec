@@ -13,7 +13,7 @@ source.exclude_dirs = tests,docs,.github,tools,build,bin,.buildozer,__pycache__
 # release tag from it (v0.2.0 here), and it refuses to overwrite an existing
 # tag unless you explicitly ask - so raising this number is what actually
 # preserves earlier versions in Releases.
-version = 0.2.0
+version = 0.2.1
 
 # python3 + kivy pull in pyjnius by themselves; cryptography/pycvc are NOT
 # listed on purpose (they would need a Rust toolchain for the modern
@@ -45,11 +45,10 @@ android.minapi = 26
 # armeabi-v7a back here only if you need a 32-bit device.
 android.archs = arm64-v8a
 
-# USB host needs no runtime permission. INTERNET is required for one feature
-# only: listing and downloading official firmware from the upstream GitHub
-# releases. Without it that lookup fails silently (urllib raises on socket
-# creation), which is hard to diagnose on a phone.
-android.permissions = INTERNET
+# USB host needs no runtime permission, so this stays empty on purpose.
+# Firmware is picked with the system file manager (SAF), which needs no
+# permission either - the app makes no network requests at all.
+android.permissions =
 
 android.allow_backup = True
 

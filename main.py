@@ -265,19 +265,7 @@ BoxLayout:
             SectionLabel:
                 text: '@@fw_sec_image@@'
             InfoLabel:
-                text: '@@fw_github_hint@@'
-            MenuButton:
-                text: '@@fw_github@@'
-                on_release: app.fw_github()
-            TextInput:
-                id: fw_url
-                hint_text: '@@fw_url_hint@@'
-                size_hint_y: None
-                height: dp(44)
-                multiline: False
-            MenuButton:
-                text: '@@fw_from_url@@'
-                on_release: app.fw_download(fw_url.text)
+                text: '@@fw_pick_hint@@'
             MenuButton:
                 text: '@@fw_pick_file@@'
                 on_release: app.fw_pick()
@@ -936,107 +924,55 @@ class PicoKeyApp(App):
 
         self._worker(work, on_ok=ok, busy_text=i18n.t("scanning"))
 
-    def fw_download(self, url: str):
-        """Fetch a firmware image over HTTPS."""
-        url = (url or "").strip()
-        if not url.startswith(("http://", "https://")):
-            self.fw_info_text = i18n.t("fw_unknown")
+    def fw_pick(self):
+        """Pick a firmware file with the system file manager.
+
+        On Android this goes through SAF; Kivy's own FileChooser is not used
+        because scoped storage hides most of the phone from it.
+        """
+        from picokeyapp import saf
+
+        if not saf.is_available():
+            # Desktop / test environment: fall back to Kivy's chooser.
+            self._fw_pick_fallback()
             return
 
-        def work():
-            from urllib.request import urlopen, Request
-            req = Request(url, headers={"User-Agent": "PicoKeyManager"})
-            with urlopen(req, timeout=60) as resp:
-                return resp.read()
-
-        def ok(data):
-            self.busy = False
-            self._fw_accept(data)
-
-        self._worker(work, on_ok=ok, busy_text=i18n.t("fw_from_url"))
-
-    def fw_github(self):
-        """List official firmware straight from the upstream GitHub releases."""
-        def work():
-            # Runs in the worker thread: this is a blocking HTTPS call.
-            return flasher.list_official_firmware("fido")
-
-        def ok(items):
-            self.busy = False
-            if not items:
-                self.fw_info_text = i18n.t("fw_github_none")
-                self.log("fw_github: no usable assets")
+        def on_result(uri):
+            if uri is None:
+                # Cancelled - not an error, say nothing.
                 return
-            self._fw_choose_github(items)
-
-        self._worker(work, on_ok=ok, busy_text=i18n.t("fw_github_fetching"))
-
-    def _fw_choose_github(self, items):
-        """Show the picker; the download only starts once one is chosen."""
-        from kivy.factory import Factory
-        from kivy.metrics import dp
-        from kivy.uix.boxlayout import BoxLayout
-        from kivy.uix.popup import Popup
-
-        # MenuButton is a KV dynamic class - it only exists in the Factory,
-        # there is no Python class to import.
-        MenuButton = Factory.get("MenuButton")
-        box = BoxLayout(orientation="vertical", spacing=6, padding=8)
-
-        def pick(entry):
-            popup.dismiss()
-            self._fw_download_github(entry)
-
-        for entry in items:
-            size_kb = entry["size"] // 1024
-            label = i18n.t("fw_github_source",
-                           repo=entry["repo"], tag=entry["tag"])
-            extra = " · " + i18n.t("fw_github_nightly") if entry["prerelease"] else ""
-            btn = MenuButton(
-                text=f"{entry['board']} · {entry['name']}\n{label} · {size_kb} KB{extra}",
-                size_hint_y=None, font_size="13sp", halign="center")
-            btn.bind(on_release=lambda _b, e=entry: pick(e))
-            btn.height = max(dp(52), btn.texture_size[1] + dp(16))
-            box.add_widget(btn)
-
-        popup = Popup(title=i18n.t("fw_github_choose"), content=box,
-                      size_hint=(0.95, 0.85))
-        popup.open()
-
-    def _fw_download_github(self, entry):
-        """Download one release asset, then feed it to the normal path."""
-        def work():
-            return flasher.download_firmware(entry["url"])
-
-        def ok(data):
-            self.busy = False
+            try:
+                data = saf.read_uri(uri)
+            except Exception as exc:
+                self.log(f"fw_pick: {exc}")
+                self.fw_info_text = i18n.t("fw_pick_failed")
+                return
+            name = saf.display_name(uri)
+            if name:
+                self.log(f"fw_pick: {name} ({len(data)} bytes)")
             self._fw_accept(data)
-            self.log(f"fw_github: got {entry['name']} ({len(data)} bytes)")
 
-        self._worker(work, on_ok=ok,
-                     busy_text=i18n.t("fw_github_downloading", name=entry["name"]))
+        try:
+            saf.open_picker(on_result)
+        except saf.SafUnavailable as exc:
+            self.log(f"fw_pick: SAF unavailable ({exc})")
+            self.fw_info_text = i18n.t("fw_no_file_manager")
+        except Exception as exc:
+            self.log(f"fw_pick: {exc}")
+            self.fw_info_text = i18n.t("fw_pick_failed")
 
-    def fw_pick(self):
-        """Open a simple file chooser popup."""
+    def _fw_pick_fallback(self):
+        """Kivy FileChooser, for desktop runs where SAF does not exist."""
         from kivy.uix.filechooser import FileChooserListView
         from kivy.uix.popup import Popup
 
-        start = "."
-        if platform == "android":
-            try:
-                from android.storage import primary_external_storage_path
-                start = primary_external_storage_path() or "."
-            except Exception:
-                start = "/sdcard"
-
-        chooser = FileChooserListView(path=start)
+        chooser = FileChooserListView(path=".")
 
         def _picked(_):
             if not chooser.selection:
                 return
-            path = chooser.selection[0]
             try:
-                with open(path, "rb") as fh:
+                with open(chooser.selection[0], "rb") as fh:
                     self._fw_accept(fh.read())
             except Exception as exc:
                 self.log(f"fw_pick: {exc}")

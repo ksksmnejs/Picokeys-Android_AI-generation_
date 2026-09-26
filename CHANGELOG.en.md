@@ -8,7 +8,7 @@ version number (with or without a `v` prefix, with or without a date). The
 workflow matches it against `version` in `buildozer.spec`.
 
 ```markdown
-## [v0.3.0] - 2026-10-01
+## [vX.Y.Z] - YYYY-MM-DD
 
 ### Added
 - something
@@ -38,6 +38,21 @@ Optional inputs when running the workflow:
 If the build fails the job stops early and no version number is consumed.
 
 ---
+
+## [v0.2.1] - 2026-09-26
+
+### Fixed
+
+- **Could not find firmware files**: now uses the Android system file manager
+  (Storage Access Framework). The app's own directory browser was limited by
+  scoped storage and listed only a few third-party app folders, so firmware
+  stored anywhere else was invisible
+
+### Changed
+
+- **Removed firmware fetching from GitHub / URL** - the `INTERNET` permission is
+  gone and the app makes no network requests at all; firmware is now picked from
+  local storage with the system file manager
 
 ## [v0.2.0] - 2026-09-26
 
